@@ -1,0 +1,18 @@
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+GEMINI.md
+discovery.py
+inspect_employee.py
+
