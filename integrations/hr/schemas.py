@@ -44,9 +44,9 @@ class HRPayrollConfigRead(BaseModel):
 
     # Allowances
     housingAllowance: float = 0.0
-    trasportAllowance: float = 0.0
+    transportAllowance: float = 0.0
     mealAllowance: float = 0.0
-    otherAllowance: float = 0.0
+    otherAllowances: float = 0.0
 
     # Statutory Deductions
     sssContribution: float = 0.0
