@@ -1,68 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+  --sia-sidebar-pink: #FDF4F4; /* The exact blush pink */
+  --sia-accent-rose: #D29191;  /* The rose button/active color */
+  --sia-text-main: #5A4343;    /* Dark brown-gray text */
+  --sia-bg-gray: #F8F9FA;      /* Light background */
 }
 
 body {
   margin: 0;
+  font-family: 'Inter', sans-serif;
+  background-color: var(--sia-bg-gray);
+  color: var(--sia-text-main);
+}
+
+.sidebar {
+  width: 260px;
+  background-color: var(--sia-sidebar-pink);
+  height: 100vh;
+  position: fixed;
+  border-right: 1px solid #F1E1E1;
+}
+
+.nav-item-sia {
   display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button {
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  margin: 4px 16px;
   border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
+  color: #8E7A7A;
+  text-decoration: none;
   font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  transition: 0.2s;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+.nav-item-sia.active {
+  background-color: var(--sia-accent-rose);
+  color: white !important;
+}
+
+.sia-card {
+  background: white;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+/* Custom Table Header to match pinkish tint */
+.sia-table-head {
+  background-color: #FFF9F9 !important;
+  color: #A08E8E;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.nav-link-sia {
+  color: #6c757d !important;
+  padding: 12px 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 15px !important;
+  text-decoration: none !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+  margin: 4px 15px !important;
+}
+
+.nav-link-sia:hover, .nav-link-sia.active {
+  background-color: #fff !important;
+  color: #D29191 !important;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05) !important;
 }
