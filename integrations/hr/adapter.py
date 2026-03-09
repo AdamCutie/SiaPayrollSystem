@@ -29,27 +29,30 @@ async def get_employee_payroll_config(
     full_name: str
 ) -> Optional[HRPayrollConfigRead]:
     """
-    Aggressive search for salary settings using ID, Number, or Name.
-    Improved fuzzy search to handle spaces in legacy name data.
+    Fetches the LATEST salary settings for an employee.
+    Uses sorting to handle legacy systems that store multiple historical salary records.
     """
     collection = hr_db[PAYROLL_CONFIG_COLLECTION]
 
-    # Clean the last name for searching (e.g., "Dela Cruz" -> "DelaCruz")
-    # We use a fuzzy regex to bridge the gap between "Dela Cruz" and "Delacruz"
+    # Clean the name for fuzzy matching (handling spaces)
     last_name = full_name.split(',')[0].strip().replace(" ", "")
 
+    # Multi-key search for maximum compatibility
     query = {
         "$or": [
             {"employeeId": employee_id_str},
             {"employeeId": ObjectId(employee_id_str) if ObjectId.is_valid(employee_id_str) else None},
             {"employeeNumber": employee_number},
-            # Fuzzy match: Look for the start of the surname, ignoring case
             {"employeeName": {"$regex": f"^{last_name[:4]}", "$options": "i"}}
         ]
     }
 
-    doc = await collection.find_one(query)
-    if doc:
-        return HRPayrollConfigRead(**doc)
+    # Sort by 'updatedAt' descending to get the most recent salary configuration
+    cursor = collection.find(query).sort("updatedAt", -1).limit(1)
+    
+    docs = await cursor.to_list(length=1)
+    
+    if docs:
+        return HRPayrollConfigRead(**docs[0])
 
     return None
