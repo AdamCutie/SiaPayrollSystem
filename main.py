@@ -2,6 +2,10 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from core.database import check_db_connection
 
+# Impoer our New Processing Router
+from modules.processing.router import router as processing_router
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -15,9 +19,9 @@ async def lifespan(app: FastAPI):
         print("✅ Connected to MongoDB.")
     else:
         print("❌ FAILED to connect to MongoDB. The system may not function correctly.")
-    
+
     yield  # The application is now serving requests
-    
+
     # --- Shutdown Logic ---
     print("--- Shutting down SiaPayrollSystem ---")
 
@@ -28,6 +32,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# This tells FastAPI: "Any URL starting with /payroll should use the processing_router."
+
+app.include_router(processing_router, prefix="/payroll")
+
 
 @app.get("/", tags=["Health"])
 async def health_check():
