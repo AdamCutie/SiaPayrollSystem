@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from core.database import check_db_connection
 
+# Import our New Processing Router
+from modules.processing.router import router as processing_router
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -11,10 +14,12 @@ async def lifespan(app: FastAPI):
     # --- Startup Logic ---
     print("--- Starting SiaPayrollSystem ---")
     db_connected = await check_db_connection()
+    
     if db_connected:
-        print("✅ Connected to MongoDB.")
+        print("✅ MongoDB Connection: SUCCESS.")
     else:
-        print("❌ FAILED to connect to MongoDB. The system may not function correctly.")
+        # We don't crash, but we warn the developer
+        print("❌ MongoDB Connection: FAILED. Check your .env configuration.")
     
     yield  # The application is now serving requests
     
@@ -24,10 +29,17 @@ async def lifespan(app: FastAPI):
 # Initialize the FastAPI Application
 app = FastAPI(
     title="SiaPayrollSystem",
-    description="A standalone Payroll Monolith integrating with an existing HR system.",
+    description="A modern FastAPI standalone Payroll system integrating with legacy HR.",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
+
+# Register our Modules
+# Prefixing with '/payroll' groups all payroll-related logic together.
+# This tells FastAPI: "Any URL starting with /payroll should use the processing_router."
+app.include_router(processing_router, prefix="/payroll")
 
 @app.get("/", tags=["Health"])
 async def health_check():
@@ -36,6 +48,7 @@ async def health_check():
     """
     return {
         "status": "Online",
-        "message": "SiaPayrollSystem API is running",
-        "docs": "/docs"
+        "system": "SiaPayrollSystem",
+        "message": "API is operational",
+        "documentation": "/docs"
     }

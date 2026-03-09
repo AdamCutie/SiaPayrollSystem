@@ -1,51 +1,75 @@
-from typing import List, Dict
+from datetime import datetime
+from typing import List
+from core.database import db  # Access to OUR new database
 from integrations.hr.adapter import get_all_active_employees, get_employee_payroll_config
 from modules.compensation.service import CompensationService
+from db.models import PayrollSnapshot  # Access to our storage model
 
 
 class PayrollProcessingService:
     """
-    The Orchestrator. This service coordinates between the HR Adapter
-    and the Compensation Service to generate payroll for
-    the entire company.
+    Orchestrates the payroll run and saves results to our new database.
     """
 
     @classmethod
-    async def run_full_payroll(cls) -> List[Dict]:
+    async def run_full_payroll(cls, start_date: datetime, end_date: datetime) -> int:
         """
-        Executes a payroll run for all active employees.
+        Executes a payroll run, calculates net pay, and saves snapshots to DB.
         """
-        # Fetch all active employees from the legacy HR system
+        collection = db["PayrollSnapshots"]
         employees = await get_all_active_employees()
+        processed_count = 0
 
-        payroll_results = []
-
-        # loop through each employee one by one
         for employee in employees:
-            # Fetch their specific salary configuration
-            config = await get_employee_payroll_config(employee.id)
+            full_name = f"{employee.lastName}, {employee.firstName}"
+
+            # Use ID, Number, and Name to find the configuration
+            config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
+
             if not config:
-                # if an employee  exists but has no salary setup, skip them(or log an error)
-                print(
-                    f"WARNING: No payroll config found for {employee.firstName} {employee.lastName}")
+                print(f"WARNING: No payroll config found for {full_name}")
                 continue
-            # Perform the calculations using our Compensation Service
+
+            # Perform calculations
             net_pay = CompensationService.calculate_net_pay(config)
             gross_pay = CompensationService.calculate_gross_pay(config)
             total_deductions = CompensationService.calculate_total_deductions(
                 config)
 
-            # Build the "Payroll Result" (Thi will eventually be saved to OUR database)
-            result = {
-                "employee_id": employee.id,
-                "full_name": f"{employee.lastName}, {employee.firstName}",
-                "employee_number": employee.employeeId,
-                "basic_salary": config.basicSalary,
-                "gross_pay": gross_pay,
-                "total_deductions": total_deductions,
-                "net_pay": net_pay,
-                "status": "Calculated"
-            }
+            # Create Snapshot
+            snapshot = PayrollSnapshot(
+                employee_id=employee.id,
+                employee_number=employee.employeeId,
+                full_name=full_name,
+                basic_salary=config.basicSalary,
+                gross_pay=gross_pay,
+                total_deductions=total_deductions,
+                net_pay=net_pay,
+                pay_period_start=start_date,
+                pay_period_end=end_date
+            )
 
-            payroll_results.append(result)
-        return payroll_results
+            # SAVE to our NEW database
+            await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
+            processed_count += 1
+
+        return processed_count
+
+    @classmethod
+    async def get_payroll_history(cls) -> List[PayrollSnapshot]:
+        """
+        Fetches all past payroll snapshots from our new
+        database.
+        Sorted by the most recently processed first (-1).
+        """
+        # Access the collection in Our new database
+        collection = db["PayrollSnapshots"]
+
+        # Find all records and sort by processing time(Newest First)
+        cursor = collection.find().sort("processed_at", -1)
+        history = []
+        async for doc in cursor:
+            # Wrap each raw MongoDB dictionary into our Snapshot Model
+            history.append(PayrollSnapshot(**doc))
+
+        return history

@@ -2,27 +2,22 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from typing import List, Optional
 from core.database import hr_db
 from .schemas import HREmployeeRead, HRPayrollConfigRead
+from bson import ObjectId
 
 # 1. Define the Collection Names as they exist in the legacy DB
 EMPLOYEES_COLLECTION = "Employees"
-PAYROLL_CONFIG_COLLECTION = "PayrollConfiguration"
+PAYROLL_CONFIG_COLLECTION = "PayrollConfigurations"
 
 
 async def get_all_active_employees() -> List[HREmployeeRead]:
     """
     Fetches all employees from the legacy HR system who are marked as active.
     """
-
-    # Access the 'Employees' collection in the legacy HR database
     collection = hr_db[EMPLOYEES_COLLECTION]
-
-    # Query: Find all documents where isActive is true
     cursor = collection.find({"isActive": True})
 
     employees: List[HREmployeeRead] = []
-
     async for doc in cursor:
-        # Convert MongoDB document into a Pydantic schema
         employees.append(HREmployeeRead(**doc))
 
     return employees
@@ -30,24 +25,34 @@ async def get_all_active_employees() -> List[HREmployeeRead]:
 
 async def get_employee_payroll_config(
     employee_id_str: str,
+    employee_number: str,
+    full_name: str
 ) -> Optional[HRPayrollConfigRead]:
     """
-    Fetches the salary and deduction settings for a specific employee.
-
-    Note:
-        employee_id_str is the MongoDB _id of the employee.
+    Fetches the LATEST salary settings for an employee.
+    Uses sorting to handle legacy systems that store multiple historical salary records.
     """
-
     collection = hr_db[PAYROLL_CONFIG_COLLECTION]
 
-    # Query: Find the config linked to this specific employee _id
-    # In the legacy system, this is stored as a string in 'employeeId'
-    doc = await collection.find_one({
-        "employeeId": employee_id_str,
-        "isActive": True
-    })
+    # Clean the name for fuzzy matching (handling spaces)
+    last_name = full_name.split(',')[0].strip().replace(" ", "")
 
-    if doc:
-        return HRPayrollConfigRead(**doc)
+    # Multi-key search for maximum compatibility
+    query = {
+        "$or": [
+            {"employeeId": employee_id_str},
+            {"employeeId": ObjectId(employee_id_str) if ObjectId.is_valid(employee_id_str) else None},
+            {"employeeNumber": employee_number},
+            {"employeeName": {"$regex": f"^{last_name[:4]}", "$options": "i"}}
+        ]
+    }
+
+    # Sort by 'updatedAt' descending to get the most recent salary configuration
+    cursor = collection.find(query).sort("updatedAt", -1).limit(1)
+    
+    docs = await cursor.to_list(length=1)
+    
+    if docs:
+        return HRPayrollConfigRead(**docs[0])
 
     return None
