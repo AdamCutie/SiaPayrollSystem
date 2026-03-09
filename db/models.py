@@ -1,38 +1,26 @@
-from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from datetime import datetime, timezone
+from typing import List, Optional, Annotated
+from pydantic import BaseModel, Field, ConfigDict, BeforeValidator
 from bson import ObjectId
 
-# Custom type to handle Mongodb ObjectId in Pydantic
-
-
-class PyObjectId(str):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid objectid")
-        return str(v)
-
-# The Core Payroll Record Model
-
+# Simple V2 Validator to handle MongoDB ObjectIds
+PyObjectId = Annotated[str, BeforeValidator(lambda v: str(v) if isinstance(v, ObjectId) else v)]
 
 class PayrollSnapshot(BaseModel):
     """
     The 'Receipt' of a payroll calculation.
     Stored in OUR new database (not the legacy HR one).
     """
-    id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
 
     # Link & Identifiers
     employee_id: str  # The original MongoDB _id from the HR system
     employee_number: str  # e.g., "23-2450"
     full_name: str
 
-    # Financial Data (The valies at the time of processing)
+    # Financial Data (The values at the time of processing)
     basic_salary: float
     gross_pay: float
     total_deductions: float
@@ -41,10 +29,5 @@ class PayrollSnapshot(BaseModel):
     # Payroll Metadata
     pay_period_start: datetime
     pay_period_end: datetime
-    processed_at: datetime = Field(default_factory=datetime.utcnow)
+    processed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: str = "Completed"
-
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
