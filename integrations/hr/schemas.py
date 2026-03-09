@@ -31,7 +31,7 @@ class HREmployeeRead(BaseModel):
     isActive: bool
 
     class Config:
-        populated_by_name = True
+        populate_by_name = True
         json_encoders = {ObjectId: str}
 
 
@@ -55,9 +55,9 @@ class HRPayrollConfigRead(BaseModel):
     withholdingTax: float = 0.0
 
     # Loans
-    sssloan: float = 0.0
-    pagIbigloan: float = 0.0
-    companyloan: float = 0.0
+    sssLoan: float = 0.0
+    pagIbigLoan: float = 0.0
+    companyLoan: float = 0.0
 
     # Penalty Rates
     absencePenaltyRate: float = 0.0

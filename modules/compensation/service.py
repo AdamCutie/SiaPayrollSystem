@@ -38,9 +38,9 @@ class CompensationService:
         )
 
         loans = (
-            config.sssloan +
-            config.pagIbigloan +
-            config.companyloan
+            config.sssLoan +
+            config.pagIbigLoan +
+            config.companyLoan
         )
 
         # combine everything
