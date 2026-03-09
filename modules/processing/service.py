@@ -22,10 +22,10 @@ class PayrollProcessingService:
 
         for employee in employees:
             full_name = f"{employee.lastName}, {employee.firstName}"
-            
+
             # Use ID, Number, and Name to find the configuration
             config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
-            
+
             if not config:
                 print(f"WARNING: No payroll config found for {full_name}")
                 continue
@@ -33,7 +33,8 @@ class PayrollProcessingService:
             # Perform calculations
             net_pay = CompensationService.calculate_net_pay(config)
             gross_pay = CompensationService.calculate_gross_pay(config)
-            total_deductions = CompensationService.calculate_total_deductions(config)
+            total_deductions = CompensationService.calculate_total_deductions(
+                config)
 
             # Create Snapshot
             snapshot = PayrollSnapshot(
@@ -53,3 +54,22 @@ class PayrollProcessingService:
             processed_count += 1
 
         return processed_count
+
+    @classmethod
+    async def get_payroll_history(cls) -> List[PayrollSnapshot]:
+        """
+        Fetches all past payroll snapshots from our new
+        database.
+        Sorted by the most recently processed first (-1).
+        """
+        # Access the collection in Our new database
+        collection = db["PayrollSnapshots"]
+
+        # Find all records and sort by processing time(Newest First)
+        cursor = collection.find().sort("processed_at", -1)
+        history = []
+        async for doc in cursor:
+            # Wrap each raw MongoDB dictionary into our Snapshot Model
+            history.append(PayrollSnapshot(**doc))
+
+        return history

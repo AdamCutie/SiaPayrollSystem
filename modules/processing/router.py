@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException
+from typing import List
 from datetime import datetime
 from pydantic import BaseModel
 from .service import PayrollProcessingService
+from db.models import PayrollSnapshot
 
 # 1. Cleaner Prefix: Changed from "/payroll" to "/processing"
 # This prevents the redundant URL: /payroll/payroll/run
@@ -9,6 +11,8 @@ from .service import PayrollProcessingService
 router = APIRouter(prefix="/processing", tags=["Payroll Processing"])
 
 # 2. Input Schema for the Request
+
+
 class PayrollRunRequest(BaseModel):
     """
     Schema representing the date range for a payroll run.
@@ -18,6 +22,8 @@ class PayrollRunRequest(BaseModel):
     end_date: datetime
 
 # 3. The API Endpoint
+
+
 @router.post("/run")
 async def run_payroll(request: PayrollRunRequest):
     """
@@ -46,6 +52,25 @@ async def run_payroll(request: PayrollRunRequest):
         # 6. Error Handling: Return a 500 status code for server-side failures
         print(f"CRITICAL ERROR: Payroll processing failed: {e}")
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"An error occurred during payroll processing: {str(e)}"
         )
+
+
+@router.get("/history", response_model=List[PayrollSnapshot])
+async def get_payroll_history():
+    """
+    Endpoint to retrieve the history of all completed
+    payroll runs.
+    """
+    try:
+        # Call the service method we jst created
+        history = await PayrollProcessingService.get_payroll_history()
+
+        # Return the List of snapshots to the users(React)
+        return history
+
+    except Exception as e:
+        # Log the error and tell the user something went wrong
+        print(f"ERROR: Could not fetch history: {e}")
+        raise HTTPException(status_code=500, detail="Database error occurred.")
