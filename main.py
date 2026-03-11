@@ -1,4 +1,6 @@
 from fastapi import FastAPI
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from core.database import check_db_connection
 
@@ -21,14 +23,14 @@ async def lifespan(app: FastAPI):
     # --- Startup Logic ---
     print("--- Starting SiaPayrollSystem ---")
     db_connected = await check_db_connection()
-    
+
     if db_connected:
         print("✅ MongoDB Connection: SUCCESS.")
     else:
         print("❌ MongoDB Connection: FAILED. Check your .env configuration.")
-    
+
     yield  # The application is now serving requests
-    
+
     # --- Shutdown Logic ---
     print("--- Shutting down SiaPayrollSystem ---")
 
@@ -42,7 +44,18 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# --- CORS Configuration ---
+# This allows your React app (running on port 5173) to talk to your backend.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # --- Register Module Routers ---
+
 # Authentication (Login and JWT)
 app.include_router(auth_router, prefix="/payroll")
 
