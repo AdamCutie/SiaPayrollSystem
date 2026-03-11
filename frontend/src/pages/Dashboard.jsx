@@ -3,6 +3,8 @@ import { Row, Col } from 'react-bootstrap';
 import axios from 'axios';
 import TopBar from '../components/layout/TopBar';
 import StatCard from '../components/dashboard/StatCard';
+import AttendanceTable from '../components/dashboard/AttendanceTable';
+import PayrollChart from '../components/dashboard/PayrollChart';
 
 const Dashboard = () => {
   // State to hold the backend data
@@ -77,7 +79,17 @@ const Dashboard = () => {
         </Col>
       </Row>
 
-      {/* The Table and Chart will be added here in subsequent steps */}
+      {/* Payroll History Chart */}
+      <PayrollChart />
+
+      {/* Employee Work Log Table */}
+      <div className="mb-4">
+        <div className="d-flex justify-content-between align-items-center mb-3">
+          <h6 className="fw-bold m-0">Employee List</h6>
+          <small className="text-primary cursor-pointer">View All</small>
+        </div>
+        <AttendanceTable />
+      </div>
     </div>
   );
 };

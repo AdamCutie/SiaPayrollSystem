@@ -5,16 +5,16 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 
 /**
  * Main Application Component
- * Assembler for the Dashboard Layout mirroring Figma designs.
+ * Orchestrates the overall layout: Sidebar + Main Content.
  */
 export default function App() {
   return (
     <div className="d-flex" style={{ backgroundColor: '#F9F9F9', minHeight: '100vh' }}>
-      {/* Sidebar - Persistent Navigation */}
+      {/* 1. Sidebar - Fixed Navigation hub */}
       <Sidebar />
 
-      {/* Main Container - Adjusted for Sidebar Width */}
-      <div className="flex-grow-1" style={{ marginLeft: '260px', padding: '0' }}>
+      {/* 2. Main Content Area - Dynamic content based on active route */}
+      <div className="flex-grow-1" style={{ marginLeft: '260px', minWidth: 0 }}>
         <Dashboard />
       </div>
     </div>
