@@ -14,12 +14,27 @@ body {
   color: var(--sia-text-main);
 }
 
-.sidebar {
+.main-content-sia {
+  padding: 30px 40px;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.sidebar-sia {
   width: 260px;
   background-color: var(--sia-sidebar-pink);
   height: 100vh;
   position: fixed;
   border-right: 1px solid #F1E1E1;
+  z-index: 1000;
+}
+
+/* Responsive fixes */
+@media (max-width: 1200px) {
+  .main-content-sia {
+    padding: 20px;
+  }
 }
 
 .nav-item-sia {

@@ -1,20 +1,21 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from core.database import db  # Access to OUR new database
 from integrations.hr.adapter import get_all_active_employees, get_employee_payroll_config
 from modules.compensation.service import CompensationService
 from db.models import PayrollSnapshot  # Access to our storage model
-
+from bson import ObjectId
 
 class PayrollProcessingService:
     """
     Orchestrates the payroll run and saves results to our new database.
+    Includes duplicate prevention to ensure employees aren't paid twice for the same period.
     """
 
     @classmethod
     async def run_full_payroll(cls, start_date: datetime, end_date: datetime) -> int:
         """
-        Executes a payroll run, calculates net pay, and saves snapshots to DB.
+        Executes a payroll run for all active employees.
         """
         collection = db["PayrollSnapshots"]
         employees = await get_all_active_employees()
@@ -22,19 +23,34 @@ class PayrollProcessingService:
 
         for employee in employees:
             full_name = f"{employee.lastName}, {employee.firstName}"
+            
+            # 🚀 DUPLICATE CHECK: Prevent double-paying for the same period
+            existing = await collection.find_one({
+                "employee_id": employee.id,
+                "pay_period_start": start_date,
+                "pay_period_end": end_date
+            })
+            if existing:
+                print(f"⏩ SKIPPING: {full_name} already has a snapshot for this period.")
+                continue
 
-            # Use ID, Number, and Name to find the configuration
             config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
-
             if not config:
-                print(f"WARNING: No payroll config found for {full_name}")
+                print(f"⚠️ WARNING: No payroll config found for {full_name}")
                 continue
 
             # Perform calculations
-            net_pay = CompensationService.calculate_net_pay(config)
+            net_pay = await CompensationService.calculate_net_pay(config)
             gross_pay = CompensationService.calculate_gross_pay(config)
-            total_deductions = CompensationService.calculate_total_deductions(
-                config)
+            total_deductions = CompensationService.calculate_total_deductions(config)
+
+            # Count Attendance for the Payslip
+            attendance_coll = db["AttendanceLogs"]
+            days_present = await attendance_coll.count_documents({
+                "employee_id": employee.id,
+                "date": {"$gte": start_date, "$lte": end_date},
+                "status": "Approved"
+            })
 
             # Create Snapshot
             snapshot = PayrollSnapshot(
@@ -46,30 +62,73 @@ class PayrollProcessingService:
                 total_deductions=total_deductions,
                 net_pay=net_pay,
                 pay_period_start=start_date,
-                pay_period_end=end_date
+                pay_period_end=end_date,
+                days_worked=days_present,
+                days_present=days_present,
+                days_absent=max(0, 13 - days_present)
             )
 
-            # SAVE to our NEW database
             await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
             processed_count += 1
 
         return processed_count
 
     @classmethod
-    async def get_payroll_history(cls) -> List[PayrollSnapshot]:
+    async def run_selective_payroll(cls, start_date: datetime, end_date: datetime, employee_ids: List[str]) -> int:
         """
-        Fetches all past payroll snapshots from our new
-        database.
-        Sorted by the most recently processed first (-1).
+        Executes a payroll run for a SPECIFIC list of employees (Figma Wizard Step 2).
         """
-        # Access the collection in Our new database
+        from core.database import hr_db
+        from integrations.hr.adapter import EMPLOYEES_COLLECTION
+        from integrations.hr.schemas import HREmployeeRead
+        
         collection = db["PayrollSnapshots"]
-
-        # Find all records and sort by processing time(Newest First)
-        cursor = collection.find().sort("processed_at", -1)
-        history = []
+        hr_coll = hr_db[EMPLOYEES_COLLECTION]
+        
+        obj_ids = [ObjectId(eid) for eid in employee_ids if ObjectId.is_valid(eid)]
+        cursor = hr_coll.find({"_id": {"$in": obj_ids}, "isActive": True})
+        
+        processed_count = 0
         async for doc in cursor:
-            # Wrap each raw MongoDB dictionary into our Snapshot Model
-            history.append(PayrollSnapshot(**doc))
+            employee = HREmployeeRead(**doc)
+            full_name = f"{employee.lastName}, {employee.firstName}"
+            
+            # 🚀 DUPLICATE CHECK: Prevent double-paying
+            existing = await collection.find_one({
+                "employee_id": employee.id,
+                "pay_period_start": start_date,
+                "pay_period_end": end_date
+            })
+            if existing: continue
 
-        return history
+            config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
+            if not config: continue
+
+            net_pay = await CompensationService.calculate_net_pay(config)
+            gross_pay = CompensationService.calculate_gross_pay(config)
+            total_deductions = CompensationService.calculate_total_deductions(config)
+
+            snapshot = PayrollSnapshot(
+                employee_id=employee.id, employee_number=employee.employeeId,
+                full_name=full_name, basic_salary=config.basicSalary,
+                gross_pay=gross_pay, total_deductions=total_deductions,
+                net_pay=net_pay, pay_period_start=start_date, pay_period_end=end_date
+            )
+
+            await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
+            processed_count += 1
+
+        return processed_count
+
+    @classmethod
+    async def get_payroll_history(cls, department: Optional[str] = None) -> List[PayrollSnapshot]:
+        """
+        Fetches payroll history with optional department filtering.
+        """
+        collection = db["PayrollSnapshots"]
+        query = {}
+        if department:
+            query["department"] = department
+            
+        cursor = collection.find(query).sort("processed_at", -1)
+        return [PayrollSnapshot(**doc) async for doc in cursor]

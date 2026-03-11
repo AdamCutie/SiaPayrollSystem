@@ -1,9 +1,18 @@
 from fastapi import FastAPI
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from core.database import check_db_connection
 
-# Import our New Processing Router
+# --- Import Module Routers ---
+from modules.auth.router import router as auth_router
 from modules.processing.router import router as processing_router
+from modules.dashboard.router import router as dashboard_router
+from modules.employees.router import router as employee_router
+from modules.attendance.router import router as attendance_router
+from modules.leaves.router import router as leave_router
+from modules.holidays.router import router as holiday_router
+from modules.departments.router import router as department_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -14,15 +23,14 @@ async def lifespan(app: FastAPI):
     # --- Startup Logic ---
     print("--- Starting SiaPayrollSystem ---")
     db_connected = await check_db_connection()
-    
+
     if db_connected:
         print("✅ MongoDB Connection: SUCCESS.")
     else:
-        # We don't crash, but we warn the developer
         print("❌ MongoDB Connection: FAILED. Check your .env configuration.")
-    
+
     yield  # The application is now serving requests
-    
+
     # --- Shutdown Logic ---
     print("--- Shutting down SiaPayrollSystem ---")
 
@@ -36,10 +44,39 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Register our Modules
-# Prefixing with '/payroll' groups all payroll-related logic together.
-# This tells FastAPI: "Any URL starting with /payroll should use the processing_router."
+# --- CORS Configuration ---
+# This allows your React app (running on port 5173) to talk to your backend.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Register Module Routers ---
+
+# Authentication (Login and JWT)
+app.include_router(auth_router, prefix="/payroll")
+
+# Dashboard Overview (Admin Page)
+app.include_router(dashboard_router, prefix="/payroll")
+
+# Payroll Processing (Calculations and Snapshots)
 app.include_router(processing_router, prefix="/payroll")
+
+# Employee Management (Profile and List)
+app.include_router(employee_router, prefix="/payroll")
+
+# Attendance and Work Logs (Dashboard Table)
+app.include_router(attendance_router, prefix="/payroll")
+
+# Leaves and Holidays
+app.include_router(leave_router, prefix="/payroll")
+app.include_router(holiday_router, prefix="/payroll")
+
+# Departments (Horizontal Cards)
+app.include_router(department_router, prefix="/payroll")
 
 @app.get("/", tags=["Health"])
 async def health_check():
