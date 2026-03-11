@@ -5,6 +5,7 @@ from core.database import check_db_connection
 # --- Import Module Routers ---
 from modules.processing.router import router as processing_router
 from modules.dashboard.router import router as dashboard_router
+from modules.employees.router import router as employee_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,6 +43,9 @@ app.include_router(dashboard_router, prefix="/payroll")
 
 # Payroll Processing (Calculations and Snapshots)
 app.include_router(processing_router, prefix="/payroll")
+
+# Employee Management (Profile and List)
+app.include_router(employee_router, prefix="/payroll")
 
 @app.get("/", tags=["Health"])
 async def health_check():

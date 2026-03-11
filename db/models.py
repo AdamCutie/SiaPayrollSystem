@@ -31,3 +31,19 @@ class PayrollSnapshot(BaseModel):
     pay_period_end: datetime
     processed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: str = "Completed"
+
+class AttendanceLog(BaseModel):
+    """
+    Model for the Employee Work Log (Figma: adminDashboardPage.png bottom table).
+    """
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    employee_id: str
+    employee_number: str
+    full_name: str
+    department: str
+    position: str
+    date: datetime
+    duration_hours: float
+    status: str = "Pending" # Approved, Pending, Rejected
