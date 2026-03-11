@@ -47,3 +47,51 @@ class AttendanceLog(BaseModel):
     date: datetime
     duration_hours: float
     status: str = "Pending" # Approved, Pending, Rejected
+
+class LeaveRequest(BaseModel):
+    """Matches Figma: Leave.png table"""
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    employee_id: str
+    employee_number: str
+    full_name: str
+    leave_type: str # Sick, Vacation, Maternity, etc.
+    start_date: datetime
+    end_date: datetime
+    status: str = "Pending" # Approved, Rejected, Pending
+    is_paid: bool = True
+
+class Holiday(BaseModel):
+    """Matches Figma: Holiday.png table"""
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    date: datetime
+    name: str # e.g., "Chinese New Year"
+    type: str # Regular Holiday, Special Non-Working Day
+
+class PenaltyRecord(BaseModel):
+    """Matches Figma: Penalize.png table"""
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    employee_id: str
+    full_name: str
+    date: datetime
+    penalty_type: str # Absent, Tardiness, LWOP
+    amount: float
+    status: str = "Approved"
+
+class OvertimeRecord(BaseModel):
+    """Matches Figma: Overtime.png table"""
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    employee_id: str
+    full_name: str
+    date: datetime
+    hours: float
+    rate_per_hour: float
+    total_pay: float
+    status: str = "Pending"

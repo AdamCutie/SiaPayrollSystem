@@ -6,6 +6,10 @@ from core.database import check_db_connection
 from modules.processing.router import router as processing_router
 from modules.dashboard.router import router as dashboard_router
 from modules.employees.router import router as employee_router
+from modules.attendance.router import router as attendance_router
+from modules.leaves.router import router as leave_router
+from modules.holidays.router import router as holiday_router
+from modules.departments.router import router as department_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,6 +50,16 @@ app.include_router(processing_router, prefix="/payroll")
 
 # Employee Management (Profile and List)
 app.include_router(employee_router, prefix="/payroll")
+
+# Attendance and Work Logs (Dashboard Table)
+app.include_router(attendance_router, prefix="/payroll")
+
+# Leaves and Holidays
+app.include_router(leave_router, prefix="/payroll")
+app.include_router(holiday_router, prefix="/payroll")
+
+# Departments (Horizontal Cards)
+app.include_router(department_router, prefix="/payroll")
 
 @app.get("/", tags=["Health"])
 async def health_check():
