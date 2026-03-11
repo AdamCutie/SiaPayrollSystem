@@ -25,6 +25,11 @@ class PayrollSnapshot(BaseModel):
     gross_pay: float
     total_deductions: float
     net_pay: float
+    
+    # 🚀 NEW: Attendance tracking for the Payslip (Figma: component_6.png)
+    days_worked: int = 0
+    days_present: int = 0
+    days_absent: int = 0
 
     # Payroll Metadata
     pay_period_start: datetime

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from core.database import db
 from db.models import AttendanceLog, PenaltyRecord, OvertimeRecord
-from typing import List
+from typing import List, Optional
 from bson import ObjectId
 
 router = APIRouter(prefix="/attendance", tags=["Attendance & Work Log"])

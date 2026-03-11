@@ -2,8 +2,34 @@ from fastapi import APIRouter, HTTPException
 from core.database import db
 from db.models import LeaveRequest
 from typing import List
+from datetime import datetime
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/leaves", tags=["Leave Management"])
+
+class LeaveApplyRequest(BaseModel):
+    """Schema for employee-side leave application."""
+    employee_id: str
+    full_name: str
+    employee_number: str
+    leave_type: str
+    start_date: datetime
+    end_date: datetime
+
+@router.post("/apply")
+async def apply_for_leave(request: LeaveApplyRequest):
+    """
+    Allows an employee to submit a leave request (Figma: Employee flow).
+    Defaults to 'Pending' status.
+    """
+    try:
+        collection = db["LeaveRequests"]
+        new_leave = request.model_dump()
+        new_leave["status"] = "Pending"
+        await collection.insert_one(new_leave)
+        return {"message": "Leave request submitted successfully and is awaiting admin approval."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to submit leave: {str(e)}")
 
 @router.get("/logs", response_model=List[LeaveRequest])
 async def get_leave_logs():

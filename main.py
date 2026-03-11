@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from core.database import check_db_connection
 
 # --- Import Module Routers ---
+from modules.auth.router import router as auth_router
 from modules.processing.router import router as processing_router
 from modules.dashboard.router import router as dashboard_router
 from modules.employees.router import router as employee_router
@@ -42,6 +43,9 @@ app = FastAPI(
 )
 
 # --- Register Module Routers ---
+# Authentication (Login and JWT)
+app.include_router(auth_router, prefix="/payroll")
+
 # Dashboard Overview (Admin Page)
 app.include_router(dashboard_router, prefix="/payroll")
 

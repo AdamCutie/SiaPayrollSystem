@@ -25,24 +25,35 @@ class PayrollProcessingService:
             config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
 
             if not config:
-                print(f"WARNING: No payroll config found for {full_name}")
-                continue
+                # Perform calculations
+                net_pay = await CompensationService.calculate_net_pay(config)
+                gross_pay = CompensationService.calculate_gross_pay(config)
+                total_deductions = CompensationService.calculate_total_deductions(
+                    config)
 
-            net_pay = await CompensationService.calculate_net_pay(config)
-            gross_pay = CompensationService.calculate_gross_pay(config)
-            total_deductions = CompensationService.calculate_total_deductions(config)
+                # 🚀 NEW: Count Attendance for the Payslip (Figma: component_6.png)
+                attendance_coll = db["AttendanceLogs"]
+                days_present = await attendance_coll.count_documents({
+                    "employee_id": employee.id,
+                    "date": {"$gte": start_date, "$lte": end_date},
+                    "status": "Approved"
+                })
 
-            snapshot = PayrollSnapshot(
-                employee_id=employee.id,
-                employee_number=employee.employeeId,
-                full_name=full_name,
-                basic_salary=config.basicSalary,
-                gross_pay=gross_pay,
-                total_deductions=total_deductions,
-                net_pay=net_pay,
-                pay_period_start=start_date,
-                pay_period_end=end_date
-            )
+                # Create Snapshot
+                snapshot = PayrollSnapshot(
+                    employee_id=employee.id,
+                    employee_number=employee.employeeId,
+                    full_name=full_name,
+                    basic_salary=config.basicSalary,
+                    gross_pay=gross_pay,
+                    total_deductions=total_deductions,
+                    net_pay=net_pay,
+                    pay_period_start=start_date,
+                    pay_period_end=end_date,
+                    days_worked=days_present, # Real data from attendance
+                    days_present=days_present,
+                    days_absent=max(0, 13 - days_present) # Simplified 13-day period logic from Figma
+                )
 
             await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
             processed_count += 1
