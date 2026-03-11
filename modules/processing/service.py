@@ -9,6 +9,7 @@ from bson import ObjectId
 class PayrollProcessingService:
     """
     Orchestrates the payroll run and saves results to our new database.
+    Includes duplicate prevention to ensure employees aren't paid twice for the same period.
     """
 
     @classmethod
@@ -22,38 +23,50 @@ class PayrollProcessingService:
 
         for employee in employees:
             full_name = f"{employee.lastName}, {employee.firstName}"
+            
+            # 🚀 DUPLICATE CHECK: Prevent double-paying for the same period
+            existing = await collection.find_one({
+                "employee_id": employee.id,
+                "pay_period_start": start_date,
+                "pay_period_end": end_date
+            })
+            if existing:
+                print(f"⏩ SKIPPING: {full_name} already has a snapshot for this period.")
+                continue
+
             config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
-
             if not config:
-                # Perform calculations
-                net_pay = await CompensationService.calculate_net_pay(config)
-                gross_pay = CompensationService.calculate_gross_pay(config)
-                total_deductions = CompensationService.calculate_total_deductions(
-                    config)
+                print(f"⚠️ WARNING: No payroll config found for {full_name}")
+                continue
 
-                # 🚀 NEW: Count Attendance for the Payslip (Figma: component_6.png)
-                attendance_coll = db["AttendanceLogs"]
-                days_present = await attendance_coll.count_documents({
-                    "employee_id": employee.id,
-                    "date": {"$gte": start_date, "$lte": end_date},
-                    "status": "Approved"
-                })
+            # Perform calculations
+            net_pay = await CompensationService.calculate_net_pay(config)
+            gross_pay = CompensationService.calculate_gross_pay(config)
+            total_deductions = CompensationService.calculate_total_deductions(config)
 
-                # Create Snapshot
-                snapshot = PayrollSnapshot(
-                    employee_id=employee.id,
-                    employee_number=employee.employeeId,
-                    full_name=full_name,
-                    basic_salary=config.basicSalary,
-                    gross_pay=gross_pay,
-                    total_deductions=total_deductions,
-                    net_pay=net_pay,
-                    pay_period_start=start_date,
-                    pay_period_end=end_date,
-                    days_worked=days_present, # Real data from attendance
-                    days_present=days_present,
-                    days_absent=max(0, 13 - days_present) # Simplified 13-day period logic from Figma
-                )
+            # Count Attendance for the Payslip
+            attendance_coll = db["AttendanceLogs"]
+            days_present = await attendance_coll.count_documents({
+                "employee_id": employee.id,
+                "date": {"$gte": start_date, "$lte": end_date},
+                "status": "Approved"
+            })
+
+            # Create Snapshot
+            snapshot = PayrollSnapshot(
+                employee_id=employee.id,
+                employee_number=employee.employeeId,
+                full_name=full_name,
+                basic_salary=config.basicSalary,
+                gross_pay=gross_pay,
+                total_deductions=total_deductions,
+                net_pay=net_pay,
+                pay_period_start=start_date,
+                pay_period_end=end_date,
+                days_worked=days_present,
+                days_present=days_present,
+                days_absent=max(0, 13 - days_present)
+            )
 
             await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
             processed_count += 1
@@ -72,7 +85,6 @@ class PayrollProcessingService:
         collection = db["PayrollSnapshots"]
         hr_coll = hr_db[EMPLOYEES_COLLECTION]
         
-        # Match only selected IDs
         obj_ids = [ObjectId(eid) for eid in employee_ids if ObjectId.is_valid(eid)]
         cursor = hr_coll.find({"_id": {"$in": obj_ids}, "isActive": True})
         
@@ -80,8 +92,16 @@ class PayrollProcessingService:
         async for doc in cursor:
             employee = HREmployeeRead(**doc)
             full_name = f"{employee.lastName}, {employee.firstName}"
-            config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
             
+            # 🚀 DUPLICATE CHECK: Prevent double-paying
+            existing = await collection.find_one({
+                "employee_id": employee.id,
+                "pay_period_start": start_date,
+                "pay_period_end": end_date
+            })
+            if existing: continue
+
+            config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
             if not config: continue
 
             net_pay = await CompensationService.calculate_net_pay(config)
@@ -103,12 +123,12 @@ class PayrollProcessingService:
     @classmethod
     async def get_payroll_history(cls, department: Optional[str] = None) -> List[PayrollSnapshot]:
         """
-        Fetches payroll history with optional department filtering (Figma Sorter).
+        Fetches payroll history with optional department filtering.
         """
         collection = db["PayrollSnapshots"]
         query = {}
         if department:
-            query["department"] = department # Snapshot would need department field updated
+            query["department"] = department
             
         cursor = collection.find(query).sort("processed_at", -1)
         return [PayrollSnapshot(**doc) async for doc in cursor]
