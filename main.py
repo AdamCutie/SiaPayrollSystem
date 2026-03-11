@@ -2,8 +2,9 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from core.database import check_db_connection
 
-# Import our New Processing Router
+# --- Import Module Routers ---
 from modules.processing.router import router as processing_router
+from modules.dashboard.router import router as dashboard_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -18,7 +19,6 @@ async def lifespan(app: FastAPI):
     if db_connected:
         print("✅ MongoDB Connection: SUCCESS.")
     else:
-        # We don't crash, but we warn the developer
         print("❌ MongoDB Connection: FAILED. Check your .env configuration.")
     
     yield  # The application is now serving requests
@@ -36,9 +36,11 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Register our Modules
-# Prefixing with '/payroll' groups all payroll-related logic together.
-# This tells FastAPI: "Any URL starting with /payroll should use the processing_router."
+# --- Register Module Routers ---
+# Dashboard Overview (Admin Page)
+app.include_router(dashboard_router, prefix="/payroll")
+
+# Payroll Processing (Calculations and Snapshots)
 app.include_router(processing_router, prefix="/payroll")
 
 @app.get("/", tags=["Health"])

@@ -1,5 +1,6 @@
 from typing import Optional
 from integrations.hr.schemas import HRPayrollConfigRead
+from modules.agencies.service import AgencyCalculator
 
 
 class CompensationService:
@@ -24,15 +25,19 @@ class CompensationService:
         # Add Basic Salary to get the Gross Pay
         return config.basicSalary + total_allowances
 
-    @staticmethod
-    def calculate_total_deductions(config: HRPayrollConfigRead) -> float:
+    @classmethod
+    def calculate_total_deductions(cls, config: HRPayrollConfigRead) -> float:
         """
-        Calculates total deductions: Statutory (Govt) + Loans + Other.
+        Calculates total deductions: Automatic Govt Deductions + Loans + Other.
         """
-        # Government Mandatory Deductions
+        # 🚀 NEW: Automatic Government Deductions from Figma Tables
+        sss = AgencyCalculator.calculate_sss(config.basicSalary)
+        philhealth = AgencyCalculator.calculate_philhealth(config.basicSalary)
+
+        # Government Mandatory Deductions (SSS & PhilHealth are now automatic)
         statutory = (
-            config.sssContribution +
-            config.philHealthContribution +
+            sss +
+            philhealth +
             config.pagIbigContribution +
             config.withholdingTax
         )
