@@ -1,14 +1,20 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
+
+from core.auth import require_admin
 from .service import PayrollProcessingService
 from db.models import PayrollSnapshot
 import io
 import csv
 
-router = APIRouter(prefix="/processing", tags=["Payroll Processing"])
+router = APIRouter(
+    prefix="/processing",
+    tags=["Payroll Processing"],
+    dependencies=[Depends(require_admin)],
+)
 
 class PayrollRunRequest(BaseModel):
     """Schema for standard full payroll run."""

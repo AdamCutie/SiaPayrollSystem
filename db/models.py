@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import List, Optional, Annotated
-from pydantic import BaseModel, Field, ConfigDict, BeforeValidator
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, BeforeValidator
 from bson import ObjectId
 
 # Simple V2 Validator to handle MongoDB ObjectIds
@@ -19,6 +19,7 @@ class PayrollSnapshot(BaseModel):
     employee_id: str  # The original MongoDB _id from the HR system
     employee_number: str  # e.g., "23-2450"
     full_name: str
+    department: Optional[str] = None
 
     # Financial Data (The values at the time of processing)
     basic_salary: float
@@ -100,3 +101,25 @@ class OvertimeRecord(BaseModel):
     rate_per_hour: float
     total_pay: float
     status: str = "Pending"
+
+
+class AuthUser(BaseModel):
+    """
+    Payroll system credentials store.
+
+    We treat the legacy HR database as read-only integration data.
+    Passwords live in the payroll database to avoid mutating HR records.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+
+    # Link back to the HR employee identity
+    employee_id: str
+    email: EmailStr
+
+    password_hash: str
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

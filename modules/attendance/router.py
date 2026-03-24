@@ -1,10 +1,16 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from core.auth import require_admin
 from core.database import db
 from db.models import AttendanceLog, PenaltyRecord, OvertimeRecord
 from typing import List, Optional
 from bson import ObjectId
 
-router = APIRouter(prefix="/attendance", tags=["Attendance & Work Log"])
+router = APIRouter(
+    prefix="/attendance",
+    tags=["Attendance & Work Log"],
+    dependencies=[Depends(require_admin)],
+)
 
 @router.get("/logs", response_model=List[AttendanceLog])
 async def get_all_work_logs(
@@ -52,6 +58,9 @@ async def update_log_status(log_id: str, status: str):
     """
     if status not in ["Approved", "Rejected", "Pending"]:
         raise HTTPException(status_code=400, detail="Invalid status. Must be Approved, Rejected, or Pending.")
+
+    if not ObjectId.is_valid(log_id):
+        raise HTTPException(status_code=400, detail="Invalid log_id format.")
         
     try:
         collection = db["AttendanceLogs"]

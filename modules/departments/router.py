@@ -1,9 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from core.auth import require_user
 from core.database import hr_db
 from integrations.hr.adapter import EMPLOYEES_COLLECTION
 from typing import List, Dict
 
-router = APIRouter(prefix="/departments", tags=["Department Management"])
+router = APIRouter(
+    prefix="/departments",
+    tags=["Department Management"],
+    dependencies=[Depends(require_user)],
+)
 
 @router.get("/summary")
 async def get_department_summary():

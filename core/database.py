@@ -22,5 +22,14 @@ async def check_db_connection():
         return True
     except Exception as e:
         # Log the error if the connection fails
-        print(f"CRITICAL: Could not connect to MongoDB at {settings.MONGODB_URL}: {e}")
+        # Avoid printing credentials embedded in connection strings.
+        print(f"CRITICAL: Could not connect to MongoDB. Check your .env MONGODB_URL. Details: {e}")
         return False
+
+
+def close_db_connection() -> None:
+    """
+    Closes the underlying MongoDB client.
+    Call this during application shutdown to release sockets cleanly.
+    """
+    client.close()

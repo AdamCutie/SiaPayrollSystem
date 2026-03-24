@@ -1,8 +1,9 @@
 from fastapi import FastAPI
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from core.database import check_db_connection
+
+from core.config import settings
+from core.database import check_db_connection, close_db_connection
 
 # --- Import Module Routers ---
 from modules.auth.router import router as auth_router
@@ -25,14 +26,15 @@ async def lifespan(app: FastAPI):
     db_connected = await check_db_connection()
 
     if db_connected:
-        print("✅ MongoDB Connection: SUCCESS.")
+        print("[OK] MongoDB Connection: SUCCESS.")
     else:
-        print("❌ MongoDB Connection: FAILED. Check your .env configuration.")
+        print("[ERROR] MongoDB Connection: FAILED. Check your .env configuration.")
 
     yield  # The application is now serving requests
 
     # --- Shutdown Logic ---
     print("--- Shutting down SiaPayrollSystem ---")
+    close_db_connection()
 
 # Initialize the FastAPI Application
 app = FastAPI(
@@ -48,7 +50,7 @@ app = FastAPI(
 # This allows your React app (running on port 5173) to talk to your backend.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

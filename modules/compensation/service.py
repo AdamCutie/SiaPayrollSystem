@@ -46,7 +46,7 @@ class CompensationService:
         return statutory + loans
 
     @classmethod
-    async def calculate_net_pay(cls, config: HRPayrollConfigRead) -> float:
+    async def calculate_net_pay(cls, config: HRPayrollConfigRead, employee_id: str) -> float:
         """
         The final calculation: (Gross + Overtime) - (Deductions + Penalties).
         """
@@ -58,11 +58,11 @@ class CompensationService:
         ot_coll = db["OvertimeRecords"]
         
         # Sum up all approved penalties for this employee
-        penalties = await penalty_coll.find({"employee_id": config.employeeId, "status": "Approved"}).to_list(None)
+        penalties = await penalty_coll.find({"employee_id": employee_id, "status": "Approved"}).to_list(None)
         total_penalties = sum(p["amount"] for p in penalties)
         
         # Sum up all approved overtime for this employee
-        overtimes = await ot_coll.find({"employee_id": config.employeeId, "status": "Approved"}).to_list(None)
+        overtimes = await ot_coll.find({"employee_id": employee_id, "status": "Approved"}).to_list(None)
         total_overtime = sum(o["total_pay"] for o in overtimes)
 
         # Net Pay calculation
