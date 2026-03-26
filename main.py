@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from core.config import settings
-from core.database import check_db_connection, close_db_connection
+from core.database import check_db_connection, close_db_connection, ensure_db_indexes
 
 # --- Import Module Routers ---
 from modules.auth.router import router as auth_router
@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
 
     if db_connected:
         print("[OK] MongoDB Connection: SUCCESS.")
+        await ensure_db_indexes()
     else:
         print("[ERROR] MongoDB Connection: FAILED. Check your .env configuration.")
 

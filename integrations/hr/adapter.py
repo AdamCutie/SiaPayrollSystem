@@ -1,6 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorCollection
 from typing import List, Optional
 from core.database import db, hr_db
+from pydantic import ValidationError
 from .schemas import HREmployeeRead, HRPayrollConfigRead
 from bson import ObjectId
 
@@ -22,7 +23,11 @@ async def get_all_active_employees(limit: int | None = None) -> List[HREmployeeR
 
     employees: List[HREmployeeRead] = []
     async for doc in cursor:
-        employees.append(HREmployeeRead(**doc))
+        try:
+            employees.append(HREmployeeRead(**doc))
+        except ValidationError as e:
+            doc_id = doc.get("_id", "<unknown>")
+            print(f"WARNING: Skipping invalid HR employee doc _id={doc_id}: {e}")
 
     return employees
 
@@ -33,7 +38,15 @@ async def get_employee_by_email(email: str) -> Optional[HREmployeeRead]:
     """
     collection = hr_db[EMPLOYEES_COLLECTION]
     doc = await collection.find_one({"email": email})
-    return HREmployeeRead(**doc) if doc else None
+    if not doc:
+        return None
+
+    try:
+        return HREmployeeRead(**doc)
+    except ValidationError as e:
+        doc_id = doc.get("_id", "<unknown>")
+        print(f"WARNING: HR employee record invalid for _id={doc_id}: {e}")
+        return None
 
 
 async def get_employee_by_id(employee_id_str: str) -> Optional[HREmployeeRead]:
@@ -54,7 +67,15 @@ async def get_employee_by_id(employee_id_str: str) -> Optional[HREmployeeRead]:
         return None
 
     doc = await collection.find_one({"$or": or_terms})
-    return HREmployeeRead(**doc) if doc else None
+    if not doc:
+        return None
+
+    try:
+        return HREmployeeRead(**doc)
+    except ValidationError as e:
+        doc_id = doc.get("_id", "<unknown>")
+        print(f"WARNING: HR employee record invalid for _id={doc_id}: {e}")
+        return None
 
 
 async def get_employee_payroll_config(
@@ -98,7 +119,13 @@ async def get_employee_payroll_config(
     docs = await cursor.to_list(length=1)
     
     if docs:
-        return HRPayrollConfigRead(**docs[0])
+        try:
+            return HRPayrollConfigRead(**docs[0])
+        except ValidationError as e:
+            doc_id = docs[0].get("_id", "<unknown>")
+            print(f"WARNING: Invalid HR payroll config doc _id={doc_id}: {e}")
+            # Treat invalid configs as missing to avoid crashing payroll runs.
+            return None
 
     # If HR has no payroll configuration, fall back to payroll DB overrides (dev/test support).
     override_terms: list[dict] = []
@@ -117,6 +144,11 @@ async def get_employee_payroll_config(
     override_cursor = db[PAYROLL_CONFIG_OVERRIDES_COLLECTION].find(override_query).sort("updatedAt", -1).limit(1)
     override_docs = await override_cursor.to_list(length=1)
     if override_docs:
-        return HRPayrollConfigRead(**override_docs[0])
+        try:
+            return HRPayrollConfigRead(**override_docs[0])
+        except ValidationError as e:
+            doc_id = override_docs[0].get("_id", "<unknown>")
+            print(f"WARNING: Invalid PayrollConfigOverrides doc _id={doc_id}: {e}")
+            return None
 
     return None

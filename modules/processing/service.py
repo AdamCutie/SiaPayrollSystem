@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timedelta
 from typing import List, Optional
 from core.database import db  # Access to OUR new database
@@ -5,6 +6,7 @@ from integrations.hr.adapter import get_all_active_employees, get_employee_payro
 from modules.compensation.service import CompensationService
 from db.models import PayrollSnapshot  # Access to our storage model
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 
 class PayrollProcessingService:
     """
@@ -31,6 +33,47 @@ class PayrollProcessingService:
             cursor += timedelta(days=1)
         return days
 
+    @staticmethod
+    def _validate_payroll_config(config) -> list[str]:
+        """
+        Defensive validation for integration data. If HR data is wrong,
+        we skip that employee instead of producing incorrect payroll.
+        """
+        issues: list[str] = []
+
+        def check_positive(field: str, value: float) -> None:
+            if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) <= 0:
+                issues.append(f"{field} must be > 0")
+
+        def check_non_negative(field: str, value: float) -> None:
+            if not isinstance(value, (int, float)) or not math.isfinite(float(value)) or float(value) < 0:
+                issues.append(f"{field} must be >= 0")
+
+        check_positive("basicSalary", config.basicSalary)
+
+        # Allowances
+        check_non_negative("housingAllowance", config.housingAllowance)
+        check_non_negative("transportAllowance", config.transportAllowance)
+        check_non_negative("mealAllowance", config.mealAllowance)
+        check_non_negative("otherAllowances", config.otherAllowances)
+
+        # Deductions / contributions / taxes
+        check_non_negative("sssContribution", config.sssContribution)
+        check_non_negative("philHealthContribution", config.philHealthContribution)
+        check_non_negative("pagIbigContribution", config.pagIbigContribution)
+        check_non_negative("withholdingTax", config.withholdingTax)
+
+        # Loans
+        check_non_negative("sssLoan", config.sssLoan)
+        check_non_negative("pagIbigLoan", config.pagIbigLoan)
+        check_non_negative("companyLoan", config.companyLoan)
+
+        # Penalty rates
+        check_non_negative("absencePenaltyRate", config.absencePenaltyRate)
+        check_non_negative("latePenaltyRate", config.latePenaltyRate)
+
+        return issues
+
     @classmethod
     async def run_full_payroll(cls, start_date: datetime, end_date: datetime) -> int:
         """
@@ -50,12 +93,17 @@ class PayrollProcessingService:
                 "pay_period_end": end_date
             })
             if existing:
-                print(f"⏩ SKIPPING: {full_name} already has a snapshot for this period.")
+                print(f"SKIPPING: {full_name} already has a snapshot for this period.")
                 continue
 
             config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
             if not config:
-                print(f"⚠️ WARNING: No payroll config found for {full_name}")
+                print(f"WARNING: No payroll config found for {full_name}")
+                continue
+
+            issues = cls._validate_payroll_config(config)
+            if issues:
+                print(f"WARNING: Invalid payroll config for {full_name}: {', '.join(issues)}")
                 continue
 
             # Perform calculations
@@ -89,7 +137,13 @@ class PayrollProcessingService:
                 days_absent=max(0, expected_workdays - days_present)
             )
 
-            await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
+            try:
+                await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
+            except DuplicateKeyError:
+                # Another concurrent run inserted the same snapshot; treat as a clean skip.
+                print(f"SKIPPING: {full_name} already has a snapshot for this period (unique index).")
+                continue
+
             processed_count += 1
 
         return processed_count
@@ -102,6 +156,7 @@ class PayrollProcessingService:
         from core.database import hr_db
         from integrations.hr.adapter import EMPLOYEES_COLLECTION
         from integrations.hr.schemas import HREmployeeRead
+        from pydantic import ValidationError
         
         collection = db["PayrollSnapshots"]
         hr_coll = hr_db[EMPLOYEES_COLLECTION]
@@ -111,7 +166,12 @@ class PayrollProcessingService:
         
         processed_count = 0
         async for doc in cursor:
-            employee = HREmployeeRead(**doc)
+            try:
+                employee = HREmployeeRead(**doc)
+            except ValidationError as e:
+                doc_id = doc.get("_id", "<unknown>")
+                print(f"WARNING: Skipping invalid HR employee doc _id={doc_id}: {e}")
+                continue
             full_name = f"{employee.lastName}, {employee.firstName}"
             
             # 🚀 DUPLICATE CHECK: Prevent double-paying
@@ -120,10 +180,19 @@ class PayrollProcessingService:
                 "pay_period_start": start_date,
                 "pay_period_end": end_date
             })
-            if existing: continue
+            if existing:
+                print(f"SKIPPING: {full_name} already has a snapshot for this period.")
+                continue
 
             config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
-            if not config: continue
+            if not config:
+                print(f"WARNING: No payroll config found for {full_name}")
+                continue
+
+            issues = cls._validate_payroll_config(config)
+            if issues:
+                print(f"WARNING: Invalid payroll config for {full_name}: {', '.join(issues)}")
+                continue
 
             net_pay = await CompensationService.calculate_net_pay(config, employee.id)
             gross_pay = CompensationService.calculate_gross_pay(config)
@@ -147,7 +216,12 @@ class PayrollProcessingService:
                 days_absent=max(0, expected_workdays - days_present)
             )
 
-            await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
+            try:
+                await collection.insert_one(snapshot.model_dump(by_alias=True, exclude={"id"}))
+            except DuplicateKeyError:
+                print(f"SKIPPING: {full_name} already has a snapshot for this period (unique index).")
+                continue
+
             processed_count += 1
 
         return processed_count

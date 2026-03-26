@@ -70,7 +70,24 @@ Notes:
 - This script does **not** write to the HR database (HR is treated as read-only integration data).
 - All inserted documents include `seed_tag` so cleanup is safe.
 
-## 2.1) Full endpoint checklist (PowerShell)
+## 2.1) Dev-safe cleanup (snapshots)
+
+If the server warns that it can’t create the unique index on `PayrollSnapshots` (because old duplicates exist), use:
+
+Report duplicate groups:
+
+```powershell
+.\venv\Scripts\python.exe .\scripts\dev_cleanup.py snapshots-report-dupes --limit 25
+```
+
+Dedupe a specific pay period (dry-run first, then apply):
+
+```powershell
+.\venv\Scripts\python.exe .\scripts\dev_cleanup.py snapshots-dedupe --start-date "2026-03-01T00:00:00" --end-date "2026-03-15T23:59:59"
+.\venv\Scripts\python.exe .\scripts\dev_cleanup.py snapshots-dedupe --start-date "2026-03-01T00:00:00" --end-date "2026-03-15T23:59:59" --apply --confirm DELETE
+```
+
+## 2.2) Full endpoint checklist (PowerShell)
 
 This is the most explicit way to hit **every endpoint**.
 

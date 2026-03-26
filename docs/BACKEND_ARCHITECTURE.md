@@ -149,9 +149,10 @@ Use `core/security.py:get_password_hash()` to generate a bcrypt hash, then inser
 
 1. Read all active HR employees (`hr_db.Employees`).
 2. For each employee:
-   - Prevent duplicates for the same period (`db.PayrollSnapshots` query).
+   - Prevent duplicates for the same period (`db.PayrollSnapshots` query + a unique DB index on `(employee_id, pay_period_start, pay_period_end)`).
    - Fetch latest HR salary config (`hr_db.PayrollConfigurations`, sorted by `updatedAt`).
      - If HR has no config, the backend also checks `db.PayrollConfigOverrides`; if still missing, the run skips them and `processed_count` will not increase.
+   - Validate config values (e.g., `basicSalary > 0`, no negative amounts). Invalid configs are skipped.
    - Compute gross/deductions/net:
      - Deductions are calculated using `AgencyCalculator`.
      - Net pay also adds approved overtime and subtracts approved penalties from payroll DB.
