@@ -1,8 +1,9 @@
 from motor.motor_asyncio import AsyncIOMotorCollection
 from typing import List, Optional
+from datetime import datetime
 from core.database import db, hr_db
 from pydantic import ValidationError
-from .schemas import HREmployeeRead, HRPayrollConfigRead
+from .schemas import HREmployeeRead, HRPayrollConfigRead, HRPayrollConfigUpdate
 from bson import ObjectId
 
 # 1. Define the Collection Names as they exist in the legacy DB
@@ -11,6 +12,33 @@ PAYROLL_CONFIG_COLLECTION = "PayrollConfigurations"
 # Optional fallback config storage inside the payroll DB (keeps HR DB read-only)
 PAYROLL_CONFIG_OVERRIDES_COLLECTION = "PayrollConfigOverrides"
 
+async def update_payroll_config_override(
+    employee_id_str: str,
+    update_data: HRPayrollConfigUpdate
+) -> bool:
+    """
+    Saves or updates a payroll configuration override in our local database.
+    Since HR DB is read-only, we store custom salary/allowance settings here.
+    """
+    collection = db[PAYROLL_CONFIG_OVERRIDES_COLLECTION]
+    
+    # We use the employee's HR ID as the link
+    query = {"employeeId": employee_id_str}
+    
+    # Convert Pydantic model to dict, removing None values to avoid overwriting with nulls
+    update_dict = update_data.model_dump(exclude_unset=True)
+    if not update_dict:
+        return False
+
+    update_dict["updatedAt"] = datetime.now()
+
+    result = await collection.update_one(
+        query,
+        {"$set": update_dict},
+        upsert=True
+    )
+    
+    return True # If it didn't raise an exception, it succeeded in MongoDB terms.
 
 async def get_all_active_employees(limit: int | None = None) -> List[HREmployeeRead]:
     """

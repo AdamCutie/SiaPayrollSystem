@@ -6,10 +6,11 @@ from integrations.hr.adapter import (
     get_all_active_employees,
     get_employee_by_id,
     get_employee_payroll_config,
+    update_payroll_config_override,
 )
-from integrations.hr.schemas import HREmployeeRead, HRPayrollConfigRead
+from integrations.hr.schemas import HREmployeeRead, HRPayrollConfigRead, HRPayrollConfigUpdate
 from db.models import PayrollSnapshot
-from typing import List
+from typing import List, Optional
 
 router = APIRouter(
     prefix="/employees",
@@ -26,6 +27,39 @@ async def get_employee_list(_: object = Depends(require_admin)):
         return await get_all_active_employees(limit=100)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch employees: {str(e)}")
+
+@router.get("/{employee_id}/payroll-config", response_model=Optional[HRPayrollConfigRead])
+async def get_payroll_configuration(employee_id: str, _: object = Depends(require_admin)):
+    """
+    Fetches the payroll configuration for a specific employee.
+    """
+    try:
+        employee = await get_employee_by_id(employee_id)
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+        
+        full_name = f"{employee.lastName}, {employee.firstName}"
+        return await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch config: {str(e)}")
+
+@router.post("/{employee_id}/payroll-config")
+async def update_payroll_configuration(
+    employee_id: str, 
+    update_data: HRPayrollConfigUpdate,
+    _: object = Depends(require_admin)
+):
+    """
+    Updates (overrides) the payroll configuration for a specific employee.
+    """
+    try:
+        success = await update_payroll_config_override(employee_id, update_data)
+        if success:
+            return {"status": "success", "message": "Payroll configuration updated."}
+        else:
+            return {"status": "no_change", "message": "No changes were made or update failed."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update config: {str(e)}")
 
 @router.get("/profile/{employee_id}")
 async def get_employee_profile(employee_id: str, user: CurrentUser = Depends(get_current_user)):

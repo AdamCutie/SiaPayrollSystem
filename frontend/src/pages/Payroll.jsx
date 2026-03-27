@@ -1,29 +1,90 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Form, Button, Table, Badge } from 'react-bootstrap';
+import { Row, Col, Card, Form, Button, Table, Badge, Spinner, Alert, Modal } from 'react-bootstrap';
 import axios from 'axios';
-import { Search, ChevronDown, Check, Download, Calendar } from 'lucide-react';
+import { Search, ChevronDown, Check, Download, Calendar, ArrowRight, Settings, Users, FileText, Edit } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Payroll = () => {
-  const [step, setStep] = useState(2); // Starting at Step 2 to match design asset
+  const [view, setView] = useState('generation'); // 'generation', 'configuration', 'payslips'
+  const [step, setStep] = useState(1); // Start at Step 1
   const [employees, setEmployees] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [processedCount, setProcessedCount] = useState(0);
   const [dateRange, setDateRange] = useState({ start: '2026-03-01', end: '2026-03-15' });
 
+  // Configuration State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [editingEmployee, setEditingEmployee] = useState(null);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [configData, setConfigData] = useState({});
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+
+  // Payslips State
+  const [payrollHistory, setPayrollHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [payslipSearch, setPayslipSearch] = useState('');
+  const [selectedPayslip, setSelectedPayslip] = useState(null);
+  const [showPayslipModal, setShowPayslipModal] = useState(false);
+
   useEffect(() => {
-    const fetchEmployees = async () => {
-      try {
-        const response = await axios.get('http://localhost:8000/payroll/employees/list');
-        setEmployees(response.data);
-        setLoading(false);
-      } catch (error) {
-        console.error("Error fetching employees:", error);
-        setLoading(false);
-      }
-    };
-    fetchEmployees();
+    if (employees.length === 0) {
+      fetchEmployees();
+    }
   }, []);
+
+  useEffect(() => {
+    if (view === 'payslips') {
+      fetchHistory();
+    }
+  }, [view]);
+
+  const fetchEmployees = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get('http://localhost:8000/payroll/employees/list');
+      setEmployees(response.data);
+      setLoading(false);
+    } catch (err) {
+      setError("Failed to fetch employees. Please ensure the backend is running.");
+      setLoading(false);
+    }
+  };
+
+  const fetchHistory = async () => {
+    try {
+      setHistoryLoading(true);
+      const response = await axios.get('http://localhost:8000/payroll/processing/history');
+      setPayrollHistory(response.data);
+      setHistoryLoading(false);
+    } catch (err) {
+      console.error("Failed to fetch history", err);
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleRunPayroll = async () => {
+    setIsProcessing(true);
+    setError(null);
+    try {
+      const payload = {
+        start_date: `${dateRange.start}T00:00:00`,
+        end_date: `${dateRange.end}T23:59:59`,
+        employee_ids: selectedIds,
+      };
+      const response = await axios.post('http://localhost:8000/payroll/processing/run-selective', payload);
+      setProcessedCount(response.data.processed_count || 0);
+      setIsProcessing(false);
+      setStep(4); // Move to final step on success
+      fetchHistory(); // Refresh history
+    } catch (err) {
+      setError("Failed to process payroll. The backend returned an error.");
+      setIsProcessing(false);
+      console.error(err);
+    }
+  };
 
   const toggleSelect = (id) => {
     setSelectedIds(prev => 
@@ -35,26 +96,540 @@ const Payroll = () => {
     if (selectedIds.length === employees.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(employees.map(e => e.id));
+      setSelectedIds(employees.map(e => e._id));
     }
   };
 
-  // UI Components
+  const handleEditConfig = async (emp) => {
+    setEditingEmployee(emp);
+    try {
+      const response = await axios.get(`http://localhost:8000/payroll/employees/${emp._id}/payroll-config`);
+      setConfigData(response.data || {});
+      setShowConfigModal(true);
+    } catch (err) {
+      console.error("Failed to fetch config", err);
+      alert("Error fetching payroll configuration.");
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    setIsSavingConfig(true);
+    try {
+      await axios.post(`http://localhost:8000/payroll/employees/${editingEmployee._id}/payroll-config`, configData);
+      setShowConfigModal(false);
+      setIsSavingConfig(false);
+      alert("Configuration updated successfully!");
+    } catch (err) {
+      console.error("Failed to save config", err);
+      setIsSavingConfig(false);
+      alert("Error saving configuration.");
+    }
+  };
+
+  const handleViewPayslip = (record) => {
+    setSelectedPayslip(record);
+    setShowPayslipModal(true);
+  };
+
+  const filteredEmployees = employees.filter(emp => 
+    `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    emp.employeeId.includes(searchQuery)
+  );
+
+  const filteredHistory = payrollHistory.filter(record => 
+    record.full_name.toLowerCase().includes(payslipSearch.toLowerCase()) ||
+    record.employee_number.includes(payslipSearch)
+  );
+
+  const renderGenerationContent = () => {
+    switch (step) {
+      case 1:
+        return (
+          <div>
+            <h5 className="fw-bold mb-4" style={{ color: '#5A4343' }}>Step 1 : Select Payroll Period</h5>
+            <Row>
+              <Col md={6}>
+                <Form.Group>
+                  <Form.Label>Start Date</Form.Label>
+                  <Form.Control type="date" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group>
+                  <Form.Label>End Date</Form.Label>
+                  <Form.Control type="date" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
+                </Form.Group>
+              </Col>
+            </Row>
+          </div>
+        );
+      case 2:
+        return (
+          <div>
+            <h5 className="fw-bold mb-4" style={{ color: '#5A4343' }}>Step 2 : Employee Selection</h5>
+            
+            <div className="p-3 border rounded-3 mb-3 d-flex align-items-center gap-3">
+              <input 
+                type="checkbox"
+                id="select-all-employees"
+                className="form-check-input"
+                style={{ transform: 'scale(1.2)' }}
+                checked={employees.length > 0 && selectedIds.length === employees.length} 
+                onChange={(e) => { e.stopPropagation(); selectAll(); }}
+                onClick={(e) => e.stopPropagation()}
+              />
+              <label htmlFor="select-all-employees" className="ms-2 mb-0" style={{ cursor: 'pointer' }}>
+                Select All
+              </label>
+            </div>
+            
+            <div className="d-flex flex-column gap-3">
+              {loading ? <div className="text-center"><Spinner /></div> : employees.map((emp) => (
+                  <label
+                    key={emp._id}
+                    className="p-3 border rounded-3 d-flex align-items-center gap-4 w-100 mb-0"
+                    style={{ 
+                      backgroundColor: selectedIds.includes(emp._id) ? '#FFF5F5' : '#FFFFFF',
+                      borderColor: selectedIds.includes(emp._id) ? '#D29191' : '#F1E1E1',
+                      borderStyle: 'solid',
+                      borderWidth: '1px',
+                      cursor: 'pointer'
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleSelect(emp._id);
+                    }}
+                  >
+                    <input 
+                      type="checkbox"
+                      className="form-check-input"
+                      style={{ transform: 'scale(1.2)', flexShrink: 0, pointerEvents: 'none' }}
+                      checked={selectedIds.includes(emp._id)}
+                      onChange={() => {}}
+                      readOnly
+                    />
+                    <div className="flex-grow-1">
+                    <Row className="align-items-center">
+                      <Col md={2}>
+                        <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Emp No.</small>
+                        <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.employeeId}</span>
+                      </Col>
+                      <Col md={3}>
+                        <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Name</small>
+                        <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.lastName}, {emp.firstName}</span>
+                      </Col>
+                      <Col md={3}>
+                        <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Department</small>
+                        <span className="text-muted" style={{ fontSize: '14px' }}>{emp.department || 'Unassigned'}</span>
+                      </Col>
+                      <Col md={2}>
+                        <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Position</small>
+                        <span className="text-muted" style={{ fontSize: '14px' }}>{emp.position || 'Staff'}</span>
+                      </Col>
+                      <Col md={2} className="text-end">
+                        <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Type</small>
+                        <Badge 
+                          bg={emp.isActive ? 'success' : 'warning'} 
+                          className={`px-3 py-1 ${emp.isActive ? 'bg-success-subtle text-success border border-success' : 'bg-warning-subtle text-warning border border-warning'}`}
+                          style={{ borderRadius: '6px', fontSize: '11px' }}
+                        >
+                          {emp.isActive ? 'Regular' : 'Probationary'}
+                        </Badge>
+                      </Col>
+                    </Row>
+                  </div>
+                </label> 
+              ))}
+            </div>
+          </div>
+        );
+      case 3:
+        return (
+          <div className="text-center">
+            <h5 className="fw-bold mb-3">Step 3: Compute & Confirm</h5>
+            <p>You are about to run payroll for <strong className="text-danger">{selectedIds.length}</strong> selected employees.</p>
+            <p>For the period: <strong>{dateRange.start}</strong> to <strong>{dateRange.end}</strong>.</p>
+            {error && <Alert variant="danger">{error}</Alert>}
+            <p className="text-muted mt-4">Please confirm to proceed.</p>
+          </div>
+        );
+      case 4:
+        return (
+          <div className="text-center">
+            <Check size={48} className="text-success" />
+            <h5 className="fw-bold mt-3">Payroll Processed Successfully!</h5>
+            <p>Successfully processed payroll for <strong>{processedCount}</strong> employees.</p>
+            <Button variant="outline-primary" onClick={() => setStep(1)}>Run Another Payroll</Button>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const renderConfigurationContent = () => (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h5 className="fw-bold mb-0" style={{ color: '#5A4343' }}>Payroll Configuration</h5>
+        <div className="position-relative w-25">
+          <Search className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" size={18} />
+          <Form.Control 
+            type="text" 
+            placeholder="Search employee..." 
+            className="rounded-pill ps-5 border-0 shadow-sm" 
+            style={{ height: '40px' }}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="table-responsive">
+        <Table hover className="align-middle">
+          <thead>
+            <tr className="text-muted" style={{ fontSize: '12px' }}>
+              <th>EMPLOYEE ID</th>
+              <th>NAME</th>
+              <th>DEPARTMENT</th>
+              <th>POSITION</th>
+              <th className="text-end">ACTION</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredEmployees.map(emp => (
+              <tr key={emp._id}>
+                <td className="fw-bold">{emp.employeeId}</td>
+                <td className="fw-bold">{emp.lastName}, {emp.firstName}</td>
+                <td className="text-muted">{emp.department}</td>
+                <td className="text-muted">{emp.position || 'Staff'}</td>
+                <td className="text-end">
+                  <Button 
+                    variant="link" 
+                    className="p-0 text-decoration-none" 
+                    style={{ color: '#D29191' }}
+                    onClick={() => handleEditConfig(emp)}
+                  >
+                    <Edit size={18} />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+
+      <Modal show={showConfigModal} onHide={() => setShowConfigModal(false)} size="lg" centered>
+        <Modal.Header closeButton className="border-0 pb-0">
+          <Modal.Title className="fw-bold" style={{ color: '#5A4343' }}>
+            Configure Payroll: {editingEmployee?.lastName}, {editingEmployee?.firstName}
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="p-4">
+          <Form>
+            <h6 className="fw-bold mb-3 border-bottom pb-2">Basic Salary & Rates</h6>
+            <Row className="mb-4">
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label>Basic Salary</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.basicSalary || ''} 
+                    onChange={e => setConfigData({...configData, basicSalary: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label>Absence Penalty Rate</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.absencePenaltyRate || ''} 
+                    onChange={e => setConfigData({...configData, absencePenaltyRate: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label>Late Penalty Rate</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.latePenaltyRate || ''} 
+                    onChange={e => setConfigData({...configData, latePenaltyRate: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <h6 className="fw-bold mb-3 border-bottom pb-2">Allowances</h6>
+            <Row className="mb-4">
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Housing</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.housingAllowance || ''} 
+                    onChange={e => setConfigData({...configData, housingAllowance: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Transport</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.transportAllowance || ''} 
+                    onChange={e => setConfigData({...configData, transportAllowance: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Meal</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.mealAllowance || ''} 
+                    onChange={e => setConfigData({...configData, mealAllowance: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label>Other</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.otherAllowances || ''} 
+                    onChange={e => setConfigData({...configData, otherAllowances: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            <h6 className="fw-bold mb-3 border-bottom pb-2">Deductions & Loans</h6>
+            <Row>
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label>Withholding Tax</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.withholdingTax || ''} 
+                    onChange={e => setConfigData({...configData, withholdingTax: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label>Pag-IBIG Contribution</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.pagIbigContribution || ''} 
+                    onChange={e => setConfigData({...configData, pagIbigContribution: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label>SSS Loan</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.sssLoan || ''} 
+                    onChange={e => setConfigData({...configData, sssLoan: parseFloat(e.target.value)})}
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+          </Form>
+        </Modal.Body>
+        <Modal.Footer className="border-0">
+          <Button variant="outline-secondary" className="rounded-pill px-4" onClick={() => setShowConfigModal(false)}>
+            Cancel
+          </Button>
+          <Button 
+            className="rounded-pill px-4 border-0" 
+            style={{ backgroundColor: '#D29191' }} 
+            onClick={handleSaveConfig}
+            disabled={isSavingConfig}
+          >
+            {isSavingConfig ? <Spinner size="sm" /> : 'Save Changes'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </div>
+  );
+
+  const renderPayslipsContent = () => (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h5 className="fw-bold mb-0" style={{ color: '#5A4343' }}>Payroll History & Payslips</h5>
+        <div className="position-relative w-25">
+          <Search className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" size={18} />
+          <Form.Control 
+            type="text" 
+            placeholder="Search history..." 
+            className="rounded-pill ps-5 border-0 shadow-sm" 
+            style={{ height: '40px' }}
+            value={payslipSearch}
+            onChange={(e) => setPayslipSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="table-responsive">
+        <Table hover className="align-middle">
+          <thead>
+            <tr className="text-muted" style={{ fontSize: '12px' }}>
+              <th>EMPLOYEE</th>
+              <th>PERIOD</th>
+              <th>NET PAY</th>
+              <th>PROCESSED AT</th>
+              <th className="text-end">ACTION</th>
+            </tr>
+          </thead>
+          <tbody>
+            {historyLoading ? <tr><td colSpan="5" className="text-center py-5"><Spinner /></td></tr> : 
+             filteredHistory.map(record => (
+              <tr key={record._id}>
+                <td>
+                  <div className="fw-bold">{record.full_name}</div>
+                  <small className="text-muted">{record.employee_number}</small>
+                </td>
+                <td>
+                  <Badge bg="light" className="text-dark border">
+                    {new Date(record.pay_period_start).toLocaleDateString()} - {new Date(record.pay_period_end).toLocaleDateString()}
+                  </Badge>
+                </td>
+                <td className="fw-bold text-success">
+                  ₱{record.net_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </td>
+                <td className="text-muted" style={{ fontSize: '13px' }}>
+                  {new Date(record.processed_at).toLocaleString()}
+                </td>
+                <td className="text-end">
+                  <Button 
+                    variant="outline-primary" 
+                    size="sm" 
+                    className="rounded-pill px-3"
+                    onClick={() => handleViewPayslip(record)}
+                  >
+                    View Payslip
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+
+      <Modal show={showPayslipModal} onHide={() => setShowPayslipModal(false)} size="md" centered>
+        <Modal.Header closeButton className="border-0">
+          <Modal.Title className="fw-bold w-100 text-center" style={{ color: '#5A4343' }}>
+            PAYSLIP
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="px-4 pb-5">
+          {selectedPayslip && (
+            <div id="printable-payslip">
+              <div className="text-center mb-4 pb-3 border-bottom">
+                <h6 className="fw-bold mb-1">Sia Payroll System</h6>
+                <small className="text-muted">Electronic Salary Statement</small>
+              </div>
+
+              <Row className="mb-4">
+                <Col xs={6}>
+                  <small className="d-block text-muted text-uppercase fw-bold" style={{ fontSize: '10px' }}>Employee Name</small>
+                  <span className="fw-bold">{selectedPayslip.full_name}</span>
+                </Col>
+                <Col xs={6} className="text-end">
+                  <small className="d-block text-muted text-uppercase fw-bold" style={{ fontSize: '10px' }}>Employee No.</small>
+                  <span className="fw-bold">{selectedPayslip.employee_number}</span>
+                </Col>
+              </Row>
+
+              <div className="p-3 bg-light rounded-3 mb-4">
+                <Row>
+                  <Col xs={6}>
+                    <small className="d-block text-muted" style={{ fontSize: '11px' }}>Pay Period</small>
+                    <span style={{ fontSize: '13px' }}>{new Date(selectedPayslip.pay_period_start).toLocaleDateString()} - {new Date(selectedPayslip.pay_period_end).toLocaleDateString()}</span>
+                  </Col>
+                  <Col xs={6} className="text-end">
+                    <small className="d-block text-muted" style={{ fontSize: '11px' }}>Department</small>
+                    <span style={{ fontSize: '13px' }}>{selectedPayslip.department || 'N/A'}</span>
+                  </Col>
+                </Row>
+              </div>
+
+              <div className="mb-4">
+                <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>EARNINGS</h6>
+                <div className="d-flex justify-content-between mb-2">
+                  <span>Basic Salary</span>
+                  <span>₱{selectedPayslip.basic_salary.toLocaleString()}</span>
+                </div>
+                <div className="d-flex justify-content-between mb-2 text-success fw-bold">
+                  <span>Gross Pay</span>
+                  <span>₱{selectedPayslip.gross_pay.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>DEDUCTIONS</h6>
+                <div className="d-flex justify-content-between mb-2 text-danger">
+                  <span>Total Deductions</span>
+                  <span>-₱{selectedPayslip.total_deductions.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>ATTENDANCE SUMMARY</h6>
+                <Row className="text-center g-2">
+                  <Col xs={4}>
+                    <div className="p-2 border rounded">
+                      <small className="d-block text-muted" style={{ fontSize: '10px' }}>Worked</small>
+                      <span className="fw-bold">{selectedPayslip.days_worked}d</span>
+                    </div>
+                  </Col>
+                  <Col xs={4}>
+                    <div className="p-2 border rounded">
+                      <small className="d-block text-muted" style={{ fontSize: '10px' }}>Present</small>
+                      <span className="fw-bold text-success">{selectedPayslip.days_present}d</span>
+                    </div>
+                  </Col>
+                  <Col xs={4}>
+                    <div className="p-2 border rounded">
+                      <small className="d-block text-muted" style={{ fontSize: '10px' }}>Absent</small>
+                      <span className="fw-bold text-danger">{selectedPayslip.days_absent}d</span>
+                    </div>
+                  </Col>
+                </Row>
+              </div>
+
+              <div className="p-3 rounded-3 mt-4 text-white d-flex justify-content-between align-items-center" style={{ backgroundColor: '#5A4343' }}>
+                <span className="fw-bold">NET TAKE HOME PAY</span>
+                <h4 className="mb-0 fw-bold">₱{selectedPayslip.net_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h4>
+              </div>
+              
+              <div className="mt-4 text-center">
+                <small className="text-muted" style={{ fontSize: '10px' }}>
+                  This is a computer-generated document. No signature is required.
+                  <br />Generated on {new Date(selectedPayslip.processed_at).toLocaleString()}
+                </small>
+              </div>
+            </div>
+          )}
+          <div className="mt-5 text-center d-print-none">
+            <Button variant="outline-secondary" className="rounded-pill px-4 me-2" onClick={() => window.print()}>
+              <Download size={18} className="me-2" /> Print PDF
+            </Button>
+          </div>
+        </Modal.Body>
+      </Modal>
+    </div>
+  );
+
   const WizardProgress = () => (
     <div className="bg-white p-4 rounded-4 shadow-sm mb-4 position-relative">
       <div className="d-flex justify-content-between align-items-center px-5">
         {[1, 2, 3, 4].map((num, idx) => (
           <div key={num} className="d-flex flex-column align-items-center position-relative" style={{ zIndex: 2 }}>
-            <div 
-              className={`rounded-circle d-flex align-items-center justify-content-center fw-bold mb-2`}
-              style={{ 
-                width: '40px', 
-                height: '40px', 
-                backgroundColor: step >= num ? '#D29191' : '#FDF4F4', 
-                color: step >= num ? 'white' : '#D29191',
-                border: step >= num ? 'none' : '2px solid #D29191'
-              }}
-            >
+            <div className={`rounded-circle d-flex align-items-center justify-content-center fw-bold mb-2`} style={{ width: '40px', height: '40px', backgroundColor: step >= num ? '#D29191' : '#FDF4F4', color: step >= num ? 'white' : '#D29191', border: step >= num ? 'none' : '2px solid #D29191' }}>
               {step > num ? <Check size={20} /> : num}
             </div>
             <span className="fw-bold" style={{ fontSize: '12px', color: step >= num ? '#5A4343' : '#A08E8E' }}>
@@ -63,26 +638,8 @@ const Payroll = () => {
           </div>
         ))}
       </div>
-      {/* Connector Line */}
-      <div 
-        className="position-absolute" 
-        style={{ 
-          top: '44px', 
-          left: '10%', 
-          right: '10%', 
-          height: '2px', 
-          backgroundColor: '#FDF4F4', 
-          zIndex: 1 
-        }}
-      >
-        <div 
-          style={{ 
-            width: `${((step - 1) / 3) * 100}%`, 
-            height: '100%', 
-            backgroundColor: '#D29191', 
-            transition: 'width 0.3s ease' 
-          }} 
-        />
+      <div className="position-absolute" style={{ top: '44px', left: '10%', right: '10%', height: '2px', backgroundColor: '#FDF4F4', zIndex: 1 }}>
+        <div style={{ width: `${((step - 1) / 3) * 100}%`, height: '100%', backgroundColor: '#D29191', transition: 'width 0.3s ease' }} />
       </div>
     </div>
   );
@@ -90,119 +647,66 @@ const Payroll = () => {
   return (
     <div className="main-content-sia">
       <TopBar title="Payroll Management" />
-
-      {/* Top Navigation Pills */}
       <div className="d-flex gap-3 mb-4">
-        <Button className="rounded-pill px-5 border-0" style={{ backgroundColor: '#D29191', height: '50px', fontWeight: '600' }}>Payroll Generation</Button>
-        <Button variant="outline-secondary" className="rounded-pill px-5 bg-white border-0 text-muted shadow-sm" style={{ height: '50px', fontWeight: '600' }}>Payroll Configuration</Button>
-        <Button variant="outline-secondary" className="rounded-pill px-5 bg-white border-0 text-muted shadow-sm" style={{ height: '50px', fontWeight: '600' }}>Payslips</Button>
+        <Button 
+          className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" 
+          style={{ 
+            backgroundColor: view === 'generation' ? '#D29191' : '#FFFFFF', 
+            color: view === 'generation' ? 'white' : '#A08E8E',
+            height: '50px', 
+            fontWeight: '600' 
+          }}
+          onClick={() => setView('generation')}
+        >
+          <Users size={18} />
+          Payroll Generation
+        </Button>
+        <Button 
+          className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" 
+          style={{ 
+            backgroundColor: view === 'configuration' ? '#D29191' : '#FFFFFF', 
+            color: view === 'configuration' ? 'white' : '#A08E8E',
+            height: '50px', 
+            fontWeight: '600' 
+          }}
+          onClick={() => setView('configuration')}
+        >
+          <Settings size={18} />
+          Payroll Configuration
+        </Button>
+        <Button 
+          className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" 
+          style={{ 
+            backgroundColor: view === 'payslips' ? '#D29191' : '#FFFFFF', 
+            color: view === 'payslips' ? 'white' : '#A08E8E',
+            height: '50px', 
+            fontWeight: '600' 
+          }}
+          onClick={() => setView('payslips')}
+        >
+          <FileText size={18} />
+          Payslips
+        </Button>
       </div>
 
-      <WizardProgress />
+      {view === 'generation' && <WizardProgress />}
 
       <Card className="border-0 shadow-sm rounded-4 p-4">
-        <h5 className="fw-bold mb-4" style={{ color: '#5A4343' }}>Step 2 : Employee Selection</h5>
-
-        {/* Filters Header */}
-        <div className="d-flex gap-3 mb-4">
-          <div className="d-flex align-items-center gap-3 bg-white p-2 rounded-3 border px-4 flex-grow-1" style={{ backgroundColor: '#FFF5F5', borderColor: '#F1E1E1' }}>
-            <Search size={18} style={{ color: '#D29191' }} />
-            <Form.Control 
-              type="text" 
-              placeholder="Search..." 
-              className="border-0 shadow-none p-0" 
-              style={{ fontSize: '14px', backgroundColor: 'transparent' }} 
-            />
+        <Card.Body>
+          {view === 'generation' ? renderGenerationContent() : 
+           view === 'configuration' ? renderConfigurationContent() : 
+           renderPayslipsContent()}
+        </Card.Body>
+        {view === 'generation' && step < 4 && (
+          <div className="d-flex justify-content-end gap-3 mt-5">
+            <Button variant="outline-secondary" className="rounded-pill px-5 border-0" style={{ fontWeight: '600' }} onClick={() => setStep(prev => Math.max(1, prev - 1))} disabled={step === 1 || isProcessing}>
+              Back
+            </Button>
+            <Button className="rounded-pill px-5 border-0 shadow-sm" style={{ backgroundColor: '#D29191', fontWeight: '600' }} onClick={step === 3 ? handleRunPayroll : () => setStep(prev => Math.min(4, prev + 1))} disabled={isProcessing}>
+              {isProcessing ? <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" /> : (step === 3 ? 'Run Payroll' : 'Next Step')}
+            </Button>
           </div>
-          <div className="position-relative">
-            <Form.Select className="rounded-3 border-0 px-4" style={{ height: '45px', backgroundColor: '#FFF5F5', color: '#D29191', fontWeight: '500', width: '200px', appearance: 'none' }}>
-              <option>All Roles</option>
-            </Form.Select>
-            <ChevronDown size={16} className="position-absolute" style={{ top: '15px', right: '15px', color: '#D29191' }} />
-          </div>
-        </div>
-
-        {/* Select All Row */}
-        <div className="p-3 border rounded-3 mb-3 d-flex align-items-center gap-3" style={{ backgroundColor: '#FFFFFF' }}>
-          <Form.Check 
-            type="checkbox" 
-            checked={selectedIds.length === employees.length && employees.length > 0} 
-            onChange={selectAll}
-            style={{ transform: 'scale(1.2)' }}
-          />
-          <span className="text-muted fw-500" style={{ fontSize: '14px' }}>Select All</span>
-        </div>
-
-        {/* Employee Cards List */}
-        <div className="d-flex flex-column gap-3">
-          {employees.map((emp) => (
-            <div 
-              key={emp.id} 
-              className={`p-3 border rounded-3 d-flex align-items-center gap-4 transition-all`}
-              style={{ 
-                backgroundColor: selectedIds.includes(emp.id) ? '#FFF5F5' : '#FFFFFF',
-                borderColor: selectedIds.includes(emp.id) ? '#D29191' : '#F1E1E1'
-              }}
-            >
-              <Form.Check 
-                type="checkbox" 
-                checked={selectedIds.includes(emp.id)}
-                onChange={() => toggleSelect(emp.id)}
-                style={{ transform: 'scale(1.2)' }}
-              />
-              
-              <div className="flex-grow-1">
-                <Row className="align-items-center">
-                  <Col md={2}>
-                    <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Emp No.</small>
-                    <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.employeeId}</span>
-                  </Col>
-                  <Col md={3}>
-                    <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Name</small>
-                    <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.lastName}, {emp.firstName}</span>
-                  </Col>
-                  <Col md={3}>
-                    <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Department</small>
-                    <span className="text-muted" style={{ fontSize: '14px' }}>{emp.department || 'Unassigned'}</span>
-                  </Col>
-                  <Col md={2}>
-                    <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Position</small>
-                    <span className="text-muted" style={{ fontSize: '14px' }}>{emp.position || 'Staff'}</span>
-                  </Col>
-                  <Col md={2} className="text-end">
-                    <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Type</small>
-                    <Badge 
-                      bg={emp.isActive ? 'success' : 'warning'} 
-                      className={`px-3 py-1 ${emp.isActive ? 'bg-success-subtle text-success border border-success' : 'bg-warning-subtle text-warning border border-warning'}`}
-                      style={{ borderRadius: '6px', fontSize: '11px' }}
-                    >
-                      {emp.isActive ? 'Regular' : 'Probationary'}
-                    </Badge>
-                  </Col>
-                </Row>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Action Buttons */}
-        <div className="d-flex justify-content-end gap-3 mt-5">
-          <Button 
-            variant="outline-secondary" 
-            className="rounded-pill px-5 border-0" 
-            style={{ fontWeight: '600' }}
-            onClick={() => setStep(prev => Math.max(1, prev - 1))}
-          >
-            Back
-          </Button>
-          <Button 
-            className="rounded-pill px-5 border-0 shadow-sm" 
-            style={{ backgroundColor: '#D29191', fontWeight: '600' }}
-            onClick={() => setStep(prev => Math.min(4, prev + 1))}
-          >
-            Next Step
-          </Button>
-        </div>
+        )}
       </Card>
     </div>
   );

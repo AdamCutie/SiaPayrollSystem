@@ -9,8 +9,11 @@ const Settings = () => {
 
       <Card className="border-0 shadow-sm rounded-4 p-4">
         <Card.Body>
-          <h5 className="fw-bold mb-4">Payroll Configuration</h5>
+          <h5 className="fw-bold mb-4" style={{ color: '#5A4343' }}>Global System Defaults</h5>
           
+          <p className="text-muted mb-4" style={{ fontSize: '14px' }}>
+            These settings apply to all employees unless an individual override is set in the Payroll Configuration.
+          </p>
           <Form>
             <Row>
               <Col md={4}>
