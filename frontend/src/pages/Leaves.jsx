@@ -11,11 +11,11 @@ const Leaves = () => {
   useEffect(() => {
     const fetchLeaves = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/payroll/leaves/list');
+        const response = await axios.get('http://localhost:8000/payroll/leaves/logs');
         setLeavesData(response.data);
         setLoading(false);
       } catch (err) {
-        setError('Failed to fetch leave applications. Please ensure the backend server is running.');
+        setError('Failed to fetch leave applications from HR. Please ensure the backend server is running.');
         setLoading(false);
         console.error("Error fetching leaves:", err);
       }
@@ -23,13 +23,10 @@ const Leaves = () => {
     fetchLeaves();
   }, []);
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'Approved': return 'success';
-      case 'Pending': return 'warning';
-      case 'Rejected': return 'danger';
-      default: return 'secondary';
-    }
+  const getStatusBadge = (leave) => {
+    if (leave.IsApproved === true) return 'success';
+    if (leave.IsApproved === false) return 'danger';
+    return 'warning'; // Pending
   };
 
   const renderContent = () => {
@@ -40,10 +37,10 @@ const Leaves = () => {
       return <Alert variant="danger">{error}</Alert>;
     }
     if (leavesData.length === 0) {
-        return <div className="text-center p-5 text-muted">No leave applications found.</div>;
+        return <div className="text-center p-5 text-muted">No leave applications found in HR System.</div>;
     }
     return (
-      <Table responsive hover>
+      <Table responsive hover className="align-middle">
         <thead>
           <tr>
             <th>Employee</th>
@@ -51,21 +48,19 @@ const Leaves = () => {
             <th>End Date</th>
             <th>Type</th>
             <th>Status</th>
-            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {leavesData.map((leave) => (
-            <tr key={leave.id}>
-              <td>{leave.full_name}</td>
-              <td>{new Date(leave.start_date).toLocaleDateString()}</td>
-              <td>{new Date(leave.end_date).toLocaleDateString()}</td>
-              <td>{leave.leave_type}</td>
+            <tr key={leave._id}>
+              <td className="fw-bold">{leave.FullName || 'Employee'}</td>
+              <td>{new Date(leave.StartDate).toLocaleDateString()}</td>
+              <td>{new Date(leave.EndDate).toLocaleDateString()}</td>
+              <td><Badge bg="light" className="text-dark border">{leave.LeaveType}</Badge></td>
               <td>
-                <Badge bg={getStatusBadge(leave.status)}>{leave.status}</Badge>
-              </td>
-              <td>
-                <Button variant="link" size="sm">View</Button>
+                <Badge bg={getStatusBadge(leave)}>
+                  {leave.IsApproved === true ? 'Approved' : leave.IsApproved === false ? 'Rejected' : 'Pending'}
+                </Badge>
               </td>
             </tr>
           ))}
@@ -77,8 +72,8 @@ const Leaves = () => {
   return (
     <div className="main-content-sia">
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h2 className="fw-bold m-0">Leave Applications</h2>
-        <Button variant="primary">New Leave Request</Button>
+        <h2 className="fw-bold m-0">Leave History (HR)</h2>
+        <small className="text-muted">Read-only from HR System</small>
       </div>
       <div className="bg-white p-4 rounded-4 shadow-sm">
         {renderContent()}

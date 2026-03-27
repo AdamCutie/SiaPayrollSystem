@@ -9,8 +9,96 @@ from bson import ObjectId
 # 1. Define the Collection Names as they exist in the legacy DB
 EMPLOYEES_COLLECTION = "Employees"
 PAYROLL_CONFIG_COLLECTION = "PayrollConfigurations"
+ATTENDANCE_COLLECTION = "Attendance"
+LEAVES_COLLECTION = "Leaves"
+
 # Optional fallback config storage inside the payroll DB (keeps HR DB read-only)
 PAYROLL_CONFIG_OVERRIDES_COLLECTION = "PayrollConfigOverrides"
+
+async def get_hr_attendance_count(
+    employee_id_str: str, 
+    employee_number: str,
+    start_date: datetime, 
+    end_date: datetime
+) -> int:
+    """
+    Queries real attendance logs from the HR System database.
+    Source of Truth: Legacy HR System.
+    """
+    collection = hr_db[ATTENDANCE_COLLECTION]
+    
+    # Updated to match real HR structure: 'employeeId' (human number) and 'date'
+    count = await collection.count_documents({
+        "employeeId": employee_number,
+        "date": {"$gte": start_date, "$lte": end_date}
+    })
+    return count
+
+async def get_hr_approved_leaves(employee_id_str: str, start_date: datetime, end_date: datetime) -> int:
+    """
+    Queries real approved leave requests from the HR System database.
+    """
+    collection = hr_db[LEAVES_COLLECTION]
+    count = await collection.count_documents({
+        "employeeId": employee_id_str,
+        "startDate": {"$gte": start_date},
+        "endDate": {"$lte": end_date},
+        "status": "approved"
+    })
+    return count
+
+async def get_hr_attendance_list(
+    employee_id: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None
+) -> List[dict]:
+    """
+    Fetches raw attendance records from the HR Database with optional date filtering.
+    """
+    collection = hr_db[ATTENDANCE_COLLECTION]
+    query = {}
+    if employee_id:
+        query["employeeId"] = employee_id
+        
+    if start_date or end_date:
+        query["date"] = {}
+        if start_date:
+            query["date"]["$gte"] = start_date
+        if end_date:
+            query["date"]["$lte"] = end_date
+    
+    cursor = collection.find(query).sort("date", -1).limit(100)
+    # We convert ObjectId to str for JSON compatibility
+    docs = await cursor.to_list(length=100)
+    for doc in docs:
+        doc["_id"] = str(doc["_id"])
+    return docs
+
+async def get_hr_leaves_list(
+    employee_id: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None
+) -> List[dict]:
+    """
+    Fetches raw leave requests from the HR Database with optional date filtering.
+    """
+    collection = hr_db[LEAVES_COLLECTION]
+    query = {}
+    if employee_id:
+        query["employeeId"] = employee_id
+        
+    if start_date or end_date:
+        query["startDate"] = {}
+        if start_date:
+            query["startDate"]["$gte"] = start_date
+        if end_date:
+            query["startDate"]["$lte"] = end_date
+            
+    cursor = collection.find(query).sort("startDate", -1).limit(100)
+    docs = await cursor.to_list(length=100)
+    for doc in docs:
+        doc["_id"] = str(doc["_id"])
+    return docs
 
 async def update_payroll_config_override(
     employee_id_str: str,
@@ -113,70 +201,55 @@ async def get_employee_payroll_config(
 ) -> Optional[HRPayrollConfigRead]:
     """
     Fetches the LATEST salary settings for an employee.
-    Uses sorting to handle legacy systems that store multiple historical salary records.
+    PRIORITY:
+    1. Local Payroll Database (Overrides from our UI)
+    2. Legacy HR System (Default values)
     """
-    collection = hr_db[PAYROLL_CONFIG_COLLECTION]
+    
+    # --- 1. CHECK LOCAL OVERRIDES FIRST ---
+    override_terms: list[dict] = []
+    if employee_id_str:
+        override_terms.append({"employeeId": employee_id_str})
+        if ObjectId.is_valid(employee_id_str):
+            override_terms.append({"employeeId": ObjectId(employee_id_str)})
+    if employee_number:
+        override_terms.append({"employeeNumber": employee_number})
 
-    # Multi-key search for maximum compatibility (legacy DBs are often inconsistent).
-    # IMPORTANT: only include filters when we have real values, otherwise we risk matching the wrong employee.
+    if override_terms:
+        override_cursor = db[PAYROLL_CONFIG_OVERRIDES_COLLECTION].find({"$or": override_terms}).sort("updatedAt", -1).limit(1)
+        override_docs = await override_cursor.to_list(length=1)
+        if override_docs:
+            try:
+                return HRPayrollConfigRead(**override_docs[0])
+            except ValidationError as e:
+                print(f"WARNING: Invalid local override doc: {e}")
+
+    # --- 2. FALLBACK TO HR SYSTEM ---
+    collection = hr_db[PAYROLL_CONFIG_COLLECTION]
     or_terms: list[dict] = []
 
     if employee_id_str:
         or_terms.append({"employeeId": employee_id_str})
         if ObjectId.is_valid(employee_id_str):
             or_terms.append({"employeeId": ObjectId(employee_id_str)})
-
     if employee_number:
         or_terms.append({"employeeNumber": employee_number})
-
     if full_name:
-        # Clean the name for fuzzy matching (handling spaces)
         last_name = full_name.split(",")[0].strip().replace(" ", "")
-        # Avoid a dangerous "match everything" regex like "^" when last_name is empty.
         if len(last_name) >= 2:
             or_terms.append({"employeeName": {"$regex": f"^{last_name[:4]}", "$options": "i"}})
 
     if not or_terms:
         return None
 
-    query = {"$or": or_terms}
-
-    # Sort by 'updatedAt' descending to get the most recent salary configuration
-    cursor = collection.find(query).sort("updatedAt", -1).limit(1)
-    
+    cursor = collection.find({"$or": or_terms}).sort("updatedAt", -1).limit(1)
     docs = await cursor.to_list(length=1)
     
     if docs:
         try:
             return HRPayrollConfigRead(**docs[0])
         except ValidationError as e:
-            doc_id = docs[0].get("_id", "<unknown>")
-            print(f"WARNING: Invalid HR payroll config doc _id={doc_id}: {e}")
-            # Treat invalid configs as missing to avoid crashing payroll runs.
-            return None
-
-    # If HR has no payroll configuration, fall back to payroll DB overrides (dev/test support).
-    override_terms: list[dict] = []
-    if employee_id_str:
-        override_terms.append({"employeeId": employee_id_str})
-        if ObjectId.is_valid(employee_id_str):
-            override_terms.append({"employeeId": ObjectId(employee_id_str)})
-
-    if employee_number:
-        override_terms.append({"employeeNumber": employee_number})
-
-    if not override_terms:
-        return None
-
-    override_query = {"$or": override_terms}
-    override_cursor = db[PAYROLL_CONFIG_OVERRIDES_COLLECTION].find(override_query).sort("updatedAt", -1).limit(1)
-    override_docs = await override_cursor.to_list(length=1)
-    if override_docs:
-        try:
-            return HRPayrollConfigRead(**override_docs[0])
-        except ValidationError as e:
-            doc_id = override_docs[0].get("_id", "<unknown>")
-            print(f"WARNING: Invalid PayrollConfigOverrides doc _id={doc_id}: {e}")
+            print(f"WARNING: Invalid HR payroll config: {e}")
             return None
 
     return None

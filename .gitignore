@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
+check_final.py
+check_raw_att.py
+find_ready_employees.py
 
 # Environments
 .env

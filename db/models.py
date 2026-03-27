@@ -24,8 +24,24 @@ class PayrollSnapshot(BaseModel):
     # Financial Data (The values at the time of processing)
     basic_salary: float
     gross_pay: float
-    total_deductions: float
     net_pay: float
+    
+    # 🚀 Itemized Earnings
+    housing_allowance: float = 0.0
+    transport_allowance: float = 0.0
+    meal_allowance: float = 0.0
+    other_allowances: float = 0.0
+    total_overtime: float = 0.0
+
+    # 🚀 Itemized Deductions
+    sss_deduction: float = 0.0
+    philhealth_deduction: float = 0.0
+    pagibig_deduction: float = 0.0
+    withholding_tax: float = 0.0
+    absence_deduction: float = 0.0
+    total_loans: float = 0.0
+    total_penalties: float = 0.0
+    total_deductions: float
     
     # 🚀 NEW: Attendance tracking for the Payslip (Figma: component_6.png)
     days_worked: int = 0

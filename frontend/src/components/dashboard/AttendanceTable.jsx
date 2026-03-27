@@ -1,16 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Badge, Spinner, Alert } from 'react-bootstrap';
+import { Table, Card, Badge, Spinner, Alert, Form, Row, Col } from 'react-bootstrap';
 import axios from 'axios';
 
 const AttendanceTable = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [period, setPeriod] = useState(''); // '', 'today', 'yesterday', 'lastweek'
+  const [selectedMonth, setSelectedMonth] = useState(''); // 1-12
 
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/payroll/attendance/logs');
+        setLoading(true);
+        let url = 'http://localhost:8000/payroll/attendance/logs';
+        
+        // Prioritize specific month, then period
+        if (selectedMonth) {
+          url += `?month=${selectedMonth}`;
+        } else if (period) {
+          url += `?period=${period}`;
+        }
+
+        const response = await axios.get(url);
         setLogs(response.data);
         setLoading(false);
       } catch (err) {
@@ -20,7 +32,49 @@ const AttendanceTable = () => {
       }
     };
     fetchLogs();
-  }, []);
+  }, [period, selectedMonth]);
+
+  const FilterControls = () => (
+    <div className="d-flex justify-content-between align-items-center mb-4">
+      <div className="d-flex gap-2">
+        {[
+          { label: 'All Time', value: '' },
+          { label: 'Today', value: 'today' },
+          { label: 'Yesterday', value: 'yesterday' },
+          { label: 'Last 7 Days', value: 'lastweek' }
+        ].map((btn) => (
+          <button
+            key={btn.value}
+            onClick={() => { setPeriod(btn.value); setSelectedMonth(''); }}
+            className="btn rounded-pill px-4 shadow-sm border-0"
+            style={{ 
+              backgroundColor: !selectedMonth && period === btn.value ? '#D29191' : '#FFFFFF',
+              color: !selectedMonth && period === btn.value ? 'white' : '#A08E8E',
+              fontWeight: '600',
+              fontSize: '13px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            {btn.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ width: '200px' }}>
+        <Form.Select 
+          value={selectedMonth} 
+          onChange={(e) => { setSelectedMonth(e.target.value); setPeriod(''); }}
+          className="rounded-pill border-0 shadow-sm px-4"
+          style={{ fontSize: '13px', color: '#5A4343', fontWeight: '600', height: '40px' }}
+        >
+          <option value="">Specific Month</option>
+          {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
+            <option key={m} value={idx + 1}>{m}</option>
+          ))}
+        </Form.Select>
+      </div>
+    </div>
+  );
 
   const renderTableContent = () => {
     if (loading) {
@@ -55,19 +109,19 @@ const AttendanceTable = () => {
     }
 
     return logs.map((log) => (
-      <tr key={log.id}>
-        <td className="ps-4">{new Date(log.date).toLocaleDateString()}</td>
-        <td className="fw-bold">{log.employee_number}</td>
-        <td>{log.full_name}</td>
-        <td>{log.department}</td>
-        <td>{log.duration_hours} hours</td>
+      <tr key={log._id}>
+        <td className="ps-4">{log.date ? new Date(log.date).toLocaleDateString() : 'N/A'}</td>
+        <td className="fw-bold">{log.employeeId}</td>
+        <td>{log.employeeName || 'Employee'}</td>
+        <td>{log.department || 'N/A'}</td>
+        <td>Completed</td>
         <td className="pe-4">
           <Badge 
-            bg={log.status === 'Approved' ? 'success' : 'warning'} 
-            className={`px-3 py-2 ${log.status === 'Approved' ? 'bg-success-subtle text-success border border-success' : 'bg-warning-subtle text-warning border border-warning'}`}
+            bg="success" 
+            className="px-3 py-2 bg-success-subtle text-success border border-success"
             style={{ fontWeight: '500' }}
           >
-            {log.status}
+            Approved
           </Badge>
         </td>
       </tr>
@@ -75,7 +129,9 @@ const AttendanceTable = () => {
   };
 
   return (
-    <Card className="border-0 shadow-sm rounded-4 overflow-hidden">
+    <div>
+      <FilterControls />
+      <Card className="border-0 shadow-sm rounded-4 overflow-hidden">
       <Table hover responsive className="m-0 align-middle">
         <thead style={{ backgroundColor: '#FFF5F5' }}>
           <tr className="text-muted" style={{ fontSize: '12px', textTransform: 'uppercase' }}>
@@ -92,6 +148,7 @@ const AttendanceTable = () => {
         </tbody>
       </Table>
     </Card>
+    </div>
   );
 };
 

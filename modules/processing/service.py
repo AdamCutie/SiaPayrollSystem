@@ -106,30 +106,31 @@ class PayrollProcessingService:
                 print(f"WARNING: Invalid payroll config for {full_name}: {', '.join(issues)}")
                 continue
 
-            # Perform calculations
-            net_pay = await CompensationService.calculate_net_pay(config, employee.id)
-            gross_pay = CompensationService.calculate_gross_pay(config)
-            total_deductions = CompensationService.calculate_total_deductions(config)
-
-            # Count Attendance for the Payslip
-            attendance_coll = db["AttendanceLogs"]
-            days_present = await attendance_coll.count_documents({
-                "employee_id": employee.id,
-                "date": {"$gte": start_date, "$lte": end_date},
-                "status": "Approved"
-            })
+            # 1. Count Attendance from HR SYSTEM (Source of Truth)
+            from integrations.hr.adapter import get_hr_attendance_count, get_hr_approved_leaves
+            
+            days_present_logs = await get_hr_attendance_count(employee.id, employee.employeeId, start_date, end_date)
+            approved_leaves = await get_hr_approved_leaves(employee.id, start_date, end_date)
+            
+            # Total days present includes actual logs + approved paid leaves
+            days_present = days_present_logs + approved_leaves
             expected_workdays = cls._count_weekdays(start_date, end_date)
 
-            # Create Snapshot
+            # 2. Perform calculations using attendance data
+            breakdown = await CompensationService.calculate_payroll_breakdown(
+                config, 
+                employee.id,
+                expected_workdays=expected_workdays,
+                days_present=days_present
+            )
+
+            # 3. Create Snapshot
             snapshot = PayrollSnapshot(
                 employee_id=employee.id,
                 employee_number=employee.employeeId,
                 full_name=full_name,
                 department=employee.department,
-                basic_salary=config.basicSalary,
-                gross_pay=gross_pay,
-                total_deductions=total_deductions,
-                net_pay=net_pay,
+                **breakdown, # Spreads all itemized fields from breakdown
                 pay_period_start=start_date,
                 pay_period_end=end_date,
                 days_worked=expected_workdays,
@@ -194,23 +195,30 @@ class PayrollProcessingService:
                 print(f"WARNING: Invalid payroll config for {full_name}: {', '.join(issues)}")
                 continue
 
-            net_pay = await CompensationService.calculate_net_pay(config, employee.id)
-            gross_pay = CompensationService.calculate_gross_pay(config)
-            total_deductions = CompensationService.calculate_total_deductions(config)
-
-            attendance_coll = db["AttendanceLogs"]
-            days_present = await attendance_coll.count_documents({
-                "employee_id": employee.id,
-                "date": {"$gte": start_date, "$lte": end_date},
-                "status": "Approved"
-            })
+            # 1. Count Attendance from HR SYSTEM (Source of Truth)
+            from integrations.hr.adapter import get_hr_attendance_count, get_hr_approved_leaves
+            
+            days_present_logs = await get_hr_attendance_count(employee.id, employee.employeeId, start_date, end_date)
+            approved_leaves = await get_hr_approved_leaves(employee.id, start_date, end_date)
+            
+            # Total days present includes actual logs + approved paid leaves
+            days_present = days_present_logs + approved_leaves
             expected_workdays = cls._count_weekdays(start_date, end_date)
 
+            # 2. Perform calculations
+            breakdown = await CompensationService.calculate_payroll_breakdown(
+                config, 
+                employee.id,
+                expected_workdays=expected_workdays,
+                days_present=days_present
+            )
+
+            # 3. Create Snapshot
             snapshot = PayrollSnapshot(
                 employee_id=employee.id, employee_number=employee.employeeId,
-                full_name=full_name, department=employee.department, basic_salary=config.basicSalary,
-                gross_pay=gross_pay, total_deductions=total_deductions,
-                net_pay=net_pay, pay_period_start=start_date, pay_period_end=end_date,
+                full_name=full_name, department=employee.department,
+                **breakdown,
+                pay_period_start=start_date, pay_period_end=end_date,
                 days_worked=expected_workdays,
                 days_present=days_present,
                 days_absent=max(0, expected_workdays - days_present)

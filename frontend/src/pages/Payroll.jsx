@@ -559,21 +559,87 @@ const Payroll = () => {
 
               <div className="mb-4">
                 <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>EARNINGS</h6>
-                <div className="d-flex justify-content-between mb-2">
-                  <span>Basic Salary</span>
-                  <span>₱{selectedPayslip.basic_salary.toLocaleString()}</span>
+                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                  <span className="text-muted">Basic Salary</span>
+                  <span>₱{selectedPayslip.basic_salary.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
-                <div className="d-flex justify-content-between mb-2 text-success fw-bold">
+                {selectedPayslip.total_overtime > 0 && (
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                    <span className="text-muted">Overtime Pay</span>
+                    <span>₱{selectedPayslip.total_overtime.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                {(selectedPayslip.housing_allowance > 0 || selectedPayslip.transport_allowance > 0 || selectedPayslip.meal_allowance > 0 || selectedPayslip.other_allowances > 0) && (
+                  <div className="mt-2 pt-2 border-top-dashed">
+                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Allowances</small>
+                    {selectedPayslip.housing_allowance > 0 && (
+                      <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                        <span className="ps-2">• Housing</span>
+                        <span>₱{selectedPayslip.housing_allowance.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {selectedPayslip.transport_allowance > 0 && (
+                      <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                        <span className="ps-2">• Transport</span>
+                        <span>₱{selectedPayslip.transport_allowance.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {selectedPayslip.meal_allowance > 0 && (
+                      <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                        <span className="ps-2">• Meal</span>
+                        <span>₱{selectedPayslip.meal_allowance.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="d-flex justify-content-between mt-2 pt-2 border-top text-success fw-bold">
                   <span>Gross Pay</span>
-                  <span>₱{selectedPayslip.gross_pay.toLocaleString()}</span>
+                  <span>₱{selectedPayslip.gross_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
               <div className="mb-4">
                 <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>DEDUCTIONS</h6>
-                <div className="d-flex justify-content-between mb-2 text-danger">
+                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                  <span className="text-muted">SSS Contribution</span>
+                  <span>-₱{selectedPayslip.sss_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                  <span className="text-muted">PhilHealth</span>
+                  <span>-₱{selectedPayslip.philhealth_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                  <span className="text-muted">Pag-IBIG</span>
+                  <span>-₱{selectedPayslip.pagibig_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                  <span className="text-muted">Withholding Tax</span>
+                  <span>-₱{selectedPayslip.withholding_tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                {selectedPayslip.absence_deduction > 0 && (
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                    <span className="text-muted text-danger">Absence Deduction</span>
+                    <span className="text-danger">-₱{selectedPayslip.absence_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                
+                {selectedPayslip.total_loans > 0 && (
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                    <span className="text-muted">Loans</span>
+                    <span>-₱{selectedPayslip.total_loans.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                
+                {selectedPayslip.total_penalties > 0 && (
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                    <span className="text-muted text-danger">Penalties (Absence/Late)</span>
+                    <span className="text-danger">-₱{selectedPayslip.total_penalties.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+
+                <div className="d-flex justify-content-between mt-2 pt-2 border-top text-danger fw-bold">
                   <span>Total Deductions</span>
-                  <span>-₱{selectedPayslip.total_deductions.toLocaleString()}</span>
+                  <span>-₱{selectedPayslip.total_deductions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
 
