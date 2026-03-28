@@ -6,7 +6,7 @@ const AttendanceTable = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [period, setPeriod] = useState(''); // '', 'today', 'yesterday', 'lastweek'
+  const [period, setPeriod] = useState('today'); // Default to Today
   const [selectedMonth, setSelectedMonth] = useState(''); // 1-12
 
   useEffect(() => {
@@ -38,10 +38,10 @@ const AttendanceTable = () => {
     <div className="d-flex justify-content-between align-items-center mb-4">
       <div className="d-flex gap-2">
         {[
-          { label: 'All Time', value: '' },
           { label: 'Today', value: 'today' },
           { label: 'Yesterday', value: 'yesterday' },
-          { label: 'Last 7 Days', value: 'lastweek' }
+          { label: 'Last 7 Days', value: 'lastweek' },
+          { label: 'All Time', value: '' }
         ].map((btn) => (
           <button
             key={btn.value}
@@ -99,10 +99,12 @@ const AttendanceTable = () => {
     }
 
     if (logs.length === 0) {
+      const dateText = period === 'today' ? 'Today' : (period === 'yesterday' ? 'Yesterday' : 'this period');
       return (
         <tr>
           <td colSpan="6" className="text-center py-5 text-muted">
-            <small>No attendance logs found in the database.</small>
+            <div className="mb-2">No attendance logs found for <strong>{dateText}</strong>.</div>
+            <small>Note: System is searching based on the actual current date (March 2026).</small>
           </td>
         </tr>
       );

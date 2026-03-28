@@ -32,6 +32,9 @@ class PayrollSnapshot(BaseModel):
     meal_allowance: float = 0.0
     other_allowances: float = 0.0
     total_overtime: float = 0.0
+    excess_days_pay: float = 0.0
+    holiday_pay: float = 0.0
+    special_day_pay: float = 0.0
 
     # 🚀 Itemized Deductions
     sss_deduction: float = 0.0

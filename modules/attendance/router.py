@@ -24,36 +24,38 @@ async def get_all_work_logs(
 ):
     """
     Fetches real-time work logs from the Legacy HR System (Source of Truth).
-    Returns raw data for UI viewing.
+    Uses the real system clock for time-based filtering.
     """
     try:
         start_date = None
         end_date = None
-        
-        now = datetime.now()
+        now_ref = datetime.now()
         
         if month:
-            # Filter by specific month of the current year
-            start_date = datetime(now.year, month, 1, 0, 0, 0)
-            # Find last day of month
+            start_date = datetime(now_ref.year, month, 1, 0, 0, 0)
             if month == 12:
-                end_date = datetime(now.year, 12, 31, 23, 59, 59)
+                end_date = datetime(now_ref.year, 12, 31, 23, 59, 59)
             else:
-                end_date = datetime(now.year, month + 1, 1) - timedelta(seconds=1)
+                end_date = datetime(now_ref.year, month + 1, 1) - timedelta(seconds=1)
         elif period == "today":
-            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+            start_date = now_ref.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now_ref.replace(hour=23, minute=59, second=59, microsecond=999999)
         elif period == "yesterday":
-            yesterday = now - timedelta(days=1)
+            yesterday = now_ref - timedelta(days=1)
             start_date = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
         elif period == "lastweek":
-            # Last 7 days
-            start_date = now - timedelta(days=7)
+            start_date = now_ref - timedelta(days=7)
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+            end_date = now_ref.replace(hour=23, minute=59, second=59, microsecond=999999)
             
-        return await get_hr_attendance_list(employee_id, start_date, end_date)
+        emp_number = None
+        if employee_id:
+            emp = await get_employee_by_id(employee_id)
+            if emp:
+                emp_number = emp.employeeId
+
+        return await get_hr_attendance_list(emp_number, start_date, end_date)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch HR work logs: {str(e)}")
 
@@ -78,25 +80,48 @@ async def get_monthly_attendance_sheet(
     end_dt = datetime(year, month, last_day, 23, 59, 59)
 
     # 3. Fetch all relevant data for the month
+    # Pass emp.employeeId (the human number like 26-2214) to the adapter
     logs = await get_hr_attendance_list(emp.employeeId, start_dt, end_dt)
     leaves = await get_hr_leaves_list(emp.employeeId, start_dt, end_dt)
     
+    # 🛡️ FIX: Ensure we fetch ALL holidays for the selected month by using date-only comparison logic
     holidays_coll = db["Holidays"]
-    cursor = holidays_coll.find({"date": {"$gte": start_dt, "$lte": end_dt}})
+    # Create start and end of month at absolute boundaries
+    search_start = datetime(year, month, 1, 0, 0, 0)
+    search_end = datetime(year, month, last_day, 23, 59, 59)
+    
+    cursor = holidays_coll.find({"date": {"$gte": search_start, "$lte": search_end}})
     holidays = [Holiday(**doc) async for doc in cursor]
 
+    # Helper to parse dates from HR which might be strings
+    def parse_hr_date(d_val):
+        if isinstance(d_val, datetime): return d_val.date()
+        if isinstance(d_val, str): 
+            # Handle ISO format like 2026-04-04T00:00:00 or just 2026-04-04
+            return datetime.fromisoformat(d_val.split('T')[0]).date()
+        return d_val
+
     # Map logs/leaves by date for O(1) lookup
-    log_map = {doc["date"].date(): doc for doc in logs if "date" in doc}
-    # Note: Leaves can span multiple days
+    log_map = {parse_hr_date(doc.get("date")): doc for doc in logs if doc.get("date")}
+    
     leave_dates = {}
     for l in leaves:
-        curr = l["startDate"].date()
-        while curr <= l["endDate"].date():
-            leave_dates[curr] = l
-            curr += timedelta(days=1)
+        s_date = parse_hr_date(l.get("startDate"))
+        e_date = parse_hr_date(l.get("endDate"))
+        if s_date and e_date:
+            curr = s_date
+            while curr <= e_date:
+                leave_dates[curr] = l
+                curr += timedelta(days=1)
     
-    holiday_dates = {h.date.date(): h.name for h in holidays}
-
+    # Map holidays by date, allowing for multiple holidays on the same day
+    holiday_map = {}
+    for h in holidays:
+        d = parse_hr_date(h.date)
+        if d not in holiday_map:
+            holiday_map[d] = []
+        holiday_map[d].append(f"{h.name} ({h.type})")
+    
     # 4. Generate the 1-31 List
     days: List[AttendanceDayStatus] = []
     p_count, a_count, l_count = 0, 0, 0
@@ -107,17 +132,29 @@ async def get_monthly_attendance_sheet(
         log_id = None
         remarks = None
 
-        if curr_date in log_map:
+        # 🚀 PRIORITY 1: HOLIDAY DETECTION
+        if curr_date in holiday_map:
+            status = "Holiday"
+            remarks = ", ".join(holiday_map[curr_date])
+            # Check if they also worked on this holiday
+            if curr_date in log_map:
+                log_id = str(log_map[curr_date].get("_id"))
+                remarks += " (Worked)"
+                p_count += 1
+        
+        # 🚀 PRIORITY 2: LOGS (PRESENT)
+        elif curr_date in log_map:
             status = "Present"
-            log_id = str(log_map[curr_date]["_id"])
+            log_id = str(log_map[curr_date].get("_id"))
             p_count += 1
+            
+        # 🚀 PRIORITY 3: LEAVES
         elif curr_date in leave_dates:
             status = "On Leave"
             remarks = leave_dates[curr_date].get("leave_type", "Leave")
             l_count += 1
-        elif curr_date in holiday_dates:
-            status = "Holiday"
-            remarks = holiday_dates[curr_date]
+            
+        # 🚀 PRIORITY 4: WEEKENDS
         elif curr_date.weekday() >= 5: # Saturday/Sunday
             status = "Weekend"
         else:

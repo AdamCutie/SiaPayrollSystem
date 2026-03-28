@@ -139,11 +139,11 @@ const MonthlyAttendanceSheet = () => {
             <tbody>
               {sheet.days.map((day) => (
                 <tr key={day.date} style={{ backgroundColor: day.status === 'Weekend' ? '#FBFBFB' : 'transparent' }}>
-                  <td className="ps-4 fw-bold text-muted">Day {new Date(day.date).getDate()}</td>
-                  <td>{new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</td>
+                  <td className="ps-4 fw-bold text-muted">Day {day.date.split('-')[2]}</td>
+                  <td>{new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}</td>
                   <td>{getStatusBadge(day.status)}</td>
                   <td className="text-muted small">
-                    {day.status === 'Present' ? `Log: ${day.log_id.substring(0,8)}...` : day.remarks || '-'}
+                    {day.status === 'Present' ? `Log: ${day.log_id.substring(0,8)}...` : (day.status === 'Holiday' ? <strong>{day.remarks}</strong> : day.remarks || '-')}
                   </td>
                 </tr>
               ))}

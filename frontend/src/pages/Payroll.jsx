@@ -177,8 +177,8 @@ const Payroll = () => {
   };
 
   const filteredEmployees = employees.filter(emp => 
-    `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    emp.employeeId.includes(searchQuery)
+    emp.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    emp.employee_id.includes(searchQuery)
   );
 
   const filteredHistory = payrollHistory.filter(record => 
@@ -717,6 +717,27 @@ const Payroll = () => {
                   <span className="text-muted">Overtime Pay</span>
                   <span>₱{(selectedPayslip.total_overtime || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
+
+                {selectedPayslip.excess_days_pay > 0 && (
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                    <span className="text-muted">Excess / Rest Day Pay</span>
+                    <span>₱{selectedPayslip.excess_days_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+
+                {selectedPayslip.holiday_pay > 0 && (
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                    <span className="text-muted">Regular Holiday Premium (100%)</span>
+                    <span>₱{selectedPayslip.holiday_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+
+                {selectedPayslip.special_day_pay > 0 && (
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                    <span className="text-muted">Special Day Premium (30%)</span>
+                    <span>₱{selectedPayslip.special_day_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                )}
 
                 <div className="mt-2 pt-2 border-top-dashed">
                   <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Allowances</small>

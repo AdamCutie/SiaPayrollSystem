@@ -25,6 +25,7 @@ class HREmployeeRead(BaseModel):
     isActive: bool
     contractType: str = "Provisionary" # "Regular" or "Provisionary"
     baseSalary: Money = 0.0 # Discovered directly in Employees collection
+    hiredDate: Optional[datetime] = None
 
 class HRPayrollConfigRead(BaseModel):
     """Schema for reading salary configurations from legacy HR DB"""

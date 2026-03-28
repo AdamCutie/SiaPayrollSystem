@@ -166,10 +166,16 @@ class PayrollProcessingService:
 
             # 1. Count Attendance from HR SYSTEM (Source of Truth)
             from integrations.hr.adapter import get_hr_attendance_count, get_hr_approved_leaves
+            from db.models import Holiday
             
             days_present_logs = await get_hr_attendance_count(employee.id, employee.employeeId, start_date, end_date)
             approved_leaves = await get_hr_approved_leaves(employee.id, start_date, end_date)
             
+            # Fetch Holidays in this period
+            holidays_coll = db["Holidays"]
+            holiday_docs = await holidays_coll.find({"date": {"$gte": start_date, "$lte": end_date}}).to_list(None)
+            holidays = [Holiday(**h) for h in holiday_docs]
+
             # Total days present includes actual logs + approved paid leaves
             days_present = days_present_logs + approved_leaves
             expected_workdays = cls._count_weekdays(start_date, end_date)
@@ -184,7 +190,8 @@ class PayrollProcessingService:
                 config, 
                 employee.id,
                 expected_workdays=expected_workdays,
-                days_present=days_present
+                days_present=days_present,
+                holidays=holidays
             )
 
             # 🛡️ NEGATIVE PAY GUARD
@@ -265,10 +272,16 @@ class PayrollProcessingService:
 
             # 1. Count Attendance from HR SYSTEM (Source of Truth)
             from integrations.hr.adapter import get_hr_attendance_count, get_hr_approved_leaves
+            from db.models import Holiday
             
             days_present_logs = await get_hr_attendance_count(employee.id, employee.employeeId, start_date, end_date)
             approved_leaves = await get_hr_approved_leaves(employee.id, start_date, end_date)
             
+            # Fetch Holidays in this period
+            holidays_coll = db["Holidays"]
+            holiday_docs = await holidays_coll.find({"date": {"$gte": start_date, "$lte": end_date}}).to_list(None)
+            holidays = [Holiday(**h) for h in holiday_docs]
+
             # Total days present includes actual logs + approved paid leaves
             days_present = days_present_logs + approved_leaves
             expected_workdays = cls._count_weekdays(start_date, end_date)
@@ -283,7 +296,8 @@ class PayrollProcessingService:
                 config, 
                 employee.id,
                 expected_workdays=expected_workdays,
-                days_present=days_present
+                days_present=days_present,
+                holidays=holidays
             )
 
             # 🛡️ NEGATIVE PAY GUARD

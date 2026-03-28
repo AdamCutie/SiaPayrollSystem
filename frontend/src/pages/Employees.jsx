@@ -9,6 +9,11 @@ const Employees = () => {
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Filters State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [deptFilter, setDeptFilter] = useState('All Departments');
+  const [statusFilter, setStatusFilter] = useState('All Status');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -27,6 +32,23 @@ const Employees = () => {
     };
     fetchData();
   }, []);
+
+  // --- Filtering Logic ---
+  const filteredEmployees = employees.filter(emp => {
+    // 1. Search Query (Name or ID)
+    const matchesSearch = 
+      `${emp.firstName} ${emp.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      emp.employeeId.includes(searchQuery);
+    
+    // 2. Department Filter
+    const matchesDept = deptFilter === 'All Departments' || emp.department === deptFilter;
+    
+    // 3. Status Filter (Normalization logic included)
+    const displayStatus = emp.contractType === 'Regular' ? 'Regular' : 'Probationary';
+    const matchesStatus = statusFilter === 'All Status' || displayStatus === statusFilter;
+
+    return matchesSearch && matchesDept && matchesStatus;
+  });
 
   if (loading) return <div className="p-5 text-center">Loading Employees...</div>;
 
@@ -63,17 +85,32 @@ const Employees = () => {
           <Search size={18} className="text-muted" />
           <Form.Control 
             type="text" 
-            placeholder="Search for anything..." 
+            placeholder="Search name or ID..." 
             className="border-0 shadow-none p-0" 
-            style={{ fontSize: '14px', backgroundColor: 'transparent' }} 
+            style={{ fontSize: '14px', backgroundColor: 'transparent' }}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
         <div className="d-flex gap-3">
-          <Form.Select className="rounded-pill shadow-sm border-0 px-4" style={{ backgroundColor: '#FFF5F5', color: '#D29191', fontWeight: '500', width: 'auto' }}>
+          <Form.Select 
+            className="rounded-pill shadow-sm border-0 px-4" 
+            style={{ backgroundColor: '#FFF5F5', color: '#D29191', fontWeight: '500', width: 'auto' }}
+            value={deptFilter}
+            onChange={(e) => setDeptFilter(e.target.value)}
+          >
             <option>All Departments</option>
+            {departments.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
           </Form.Select>
-          <Form.Select className="rounded-pill shadow-sm border-0 px-4" style={{ backgroundColor: '#FFF5F5', color: '#D29191', fontWeight: '500', width: 'auto' }}>
+          <Form.Select 
+            className="rounded-pill shadow-sm border-0 px-4" 
+            style={{ backgroundColor: '#FFF5F5', color: '#D29191', fontWeight: '500', width: 'auto' }}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
             <option>All Status</option>
+            <option value="Regular">Regular</option>
+            <option value="Probationary">Probationary</option>
           </Form.Select>
         </div>
       </div>
@@ -92,28 +129,28 @@ const Employees = () => {
             </tr>
           </thead>
           <tbody style={{ fontSize: '14px', color: '#5A4343' }}>
-            {employees.length > 0 ? employees.map((emp) => (
+            {filteredEmployees.length > 0 ? filteredEmployees.map((emp) => (
               <tr key={emp.id} style={{ borderBottom: '1px solid #F8F9FA' }}>
                 <td className="ps-5 py-4 fw-bold">{emp.employeeId}</td>
                 <td>{emp.lastName}, {emp.firstName}</td>
                 <td>{emp.department || 'Unassigned'}</td>
-                <td>{emp.position || 'Staff'}</td>
+                <td>{emp.role || 'Staff'}</td>
                 <td>
                   <Badge 
-                    bg={emp.isActive ? 'success' : 'secondary'} 
-                    className={`px-3 py-2 ${emp.isActive ? 'bg-success-subtle text-success border border-success' : 'bg-secondary-subtle text-secondary border border-secondary'}`}
+                    bg={emp.contractType === 'Regular' ? 'success-subtle' : 'warning-subtle'} 
+                    className={`px-3 py-2 ${emp.contractType === 'Regular' ? 'text-success border border-success' : 'text-warning border border-warning'}`}
                     style={{ fontWeight: '500', borderRadius: '50px' }}
                   >
-                    {emp.isActive ? 'Regular' : 'Inactive'}
+                    {emp.contractType === 'Regular' ? 'Regular' : 'Probationary'}
                   </Badge>
                 </td>
                 <td className="pe-5 text-muted">
-                  {emp.joiningDate ? new Date(emp.joiningDate).toLocaleDateString() : 'N/A'}
+                  {emp.hiredDate ? new Date(emp.hiredDate).toLocaleDateString() : 'N/A'}
                 </td>
               </tr>
             )) : (
               <tr>
-                <td colSpan="6" className="text-center py-5 text-muted">No employees found.</td>
+                <td colSpan="6" className="text-center py-5 text-muted">No employees match your filters.</td>
               </tr>
             )}
           </tbody>

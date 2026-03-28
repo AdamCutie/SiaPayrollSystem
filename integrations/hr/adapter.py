@@ -67,18 +67,20 @@ async def get_hr_attendance_list(
 ) -> List[dict]:
     """
     Fetches raw attendance records from the HR Database with optional date filtering.
+    Handles both String and Object dates.
     """
     collection = hr_db[ATTENDANCE_COLLECTION]
     query = {}
     if employee_id:
         query["employeeId"] = employee_id
         
-    if start_date or end_date:
-        query["date"] = {}
-        if start_date:
-            query["date"]["$gte"] = start_date.strftime("%Y-%m-%dT%H:%M:%S")
-        if end_date:
-            query["date"]["$lte"] = end_date.strftime("%Y-%m-%dT%H:%M:%S")
+    if start_date and end_date:
+        s_str = start_date.strftime("%Y-%m-%dT%H:%M:%S")
+        e_str = end_date.strftime("%Y-%m-%dT%H:%M:%S")
+        query["$or"] = [
+            {"date": {"$gte": start_date, "$lte": end_date}},
+            {"date": {"$gte": s_str, "$lte": e_str}}
+        ]
     
     cursor = collection.find(query).sort("date", -1).limit(100)
     # We convert ObjectId to str for JSON compatibility
@@ -94,18 +96,20 @@ async def get_hr_leaves_list(
 ) -> List[dict]:
     """
     Fetches raw leave requests from the HR Database with optional date filtering.
+    Handles both String and Object dates.
     """
     collection = hr_db[LEAVES_COLLECTION]
     query = {}
     if employee_id:
         query["employeeId"] = employee_id
         
-    if start_date or end_date:
-        query["startDate"] = {}
-        if start_date:
-            query["startDate"]["$gte"] = start_date
-        if end_date:
-            query["startDate"]["$lte"] = end_date
+    if start_date and end_date:
+        s_str = start_date.strftime("%Y-%m-%dT%H:%M:%S")
+        e_str = end_date.strftime("%Y-%m-%dT%H:%M:%S")
+        query["$or"] = [
+            {"startDate": {"$gte": start_date}, "endDate": {"$lte": end_date}},
+            {"startDate": {"$gte": s_str}, "endDate": {"$lte": e_str}}
+        ]
             
     cursor = collection.find(query).sort("startDate", -1).limit(100)
     docs = await cursor.to_list(length=100)
