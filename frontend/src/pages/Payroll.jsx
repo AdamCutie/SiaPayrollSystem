@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Form, Button, Table, Badge, Spinner, Alert, Modal } from 'react-bootstrap';
 import axios from 'axios';
-import { Search, ChevronDown, Check, Download, Calendar, ArrowRight, Settings, Users, FileText, Edit } from 'lucide-react';
+import { Search, ChevronDown, Check, Download, Calendar, ArrowRight, Settings, Users, FileText, Edit, Eye } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Payroll = () => {
   const [view, setView] = useState('generation'); // 'generation', 'configuration', 'payslips'
   const [step, setStep] = useState(1); // Start at Step 1
   const [employees, setEmployees] = useState([]);
+  const [readinessSummary, setReadinessSummary] = useState({ ready_count: 0, incomplete_count: 0 });
   const [selectedIds, setSelectedIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -44,11 +45,15 @@ const Payroll = () => {
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:8000/payroll/employees/list');
-      setEmployees(response.data);
+      const response = await axios.get('http://localhost:8000/payroll/processing/readiness');
+      setEmployees(response.data.employees);
+      setReadinessSummary({
+        ready_count: response.data.ready_count,
+        incomplete_count: response.data.incomplete_count
+      });
       setLoading(false);
     } catch (err) {
-      setError("Failed to fetch employees. Please ensure the backend is running.");
+      setError("Failed to fetch employee readiness. Please ensure the backend is running.");
       setLoading(false);
     }
   };
@@ -96,35 +101,23 @@ const Payroll = () => {
     if (selectedIds.length === employees.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(employees.map(e => e._id));
+      setSelectedIds(employees.map(e => e.id));
     }
   };
 
   const handleEditConfig = async (emp) => {
     setEditingEmployee(emp);
     try {
-      const response = await axios.get(`http://localhost:8000/payroll/employees/${emp._id}/payroll-config`);
+      const response = await axios.get(`http://localhost:8000/payroll/employees/${emp.id}/payroll-config`);
       setConfigData(response.data || {});
       setShowConfigModal(true);
     } catch (err) {
       console.error("Failed to fetch config", err);
-      alert("Error fetching payroll configuration.");
+      alert("Error fetching payroll profile from HR.");
     }
   };
 
-  const handleSaveConfig = async () => {
-    setIsSavingConfig(true);
-    try {
-      await axios.post(`http://localhost:8000/payroll/employees/${editingEmployee._id}/payroll-config`, configData);
-      setShowConfigModal(false);
-      setIsSavingConfig(false);
-      alert("Configuration updated successfully!");
-    } catch (err) {
-      console.error("Failed to save config", err);
-      setIsSavingConfig(false);
-      alert("Error saving configuration.");
-    }
-  };
+  // Removed handleSaveConfig and onSalaryChange as they are no longer needed for a read-only view.
 
   const handleViewPayslip = (record) => {
     setSelectedPayslip(record);
@@ -183,28 +176,38 @@ const Payroll = () => {
               </label>
             </div>
             
+            <div className="d-flex justify-content-between align-items-center mb-3">
+               <h6 className="fw-bold mb-0">Total: {employees.length} Employees</h6>
+               <div className="d-flex gap-2">
+                  <Badge bg="success-subtle" className="text-success border border-success px-3">{readinessSummary.ready_count} READY</Badge>
+                  <Badge bg="danger-subtle" className="text-danger border border-danger px-3">{readinessSummary.incomplete_count} INCOMPLETE</Badge>
+               </div>
+            </div>
+
             <div className="d-flex flex-column gap-3">
               {loading ? <div className="text-center"><Spinner /></div> : employees.map((emp) => (
                   <label
-                    key={emp._id}
+                    key={emp.id}
                     className="p-3 border rounded-3 d-flex align-items-center gap-4 w-100 mb-0"
                     style={{ 
-                      backgroundColor: selectedIds.includes(emp._id) ? '#FFF5F5' : '#FFFFFF',
-                      borderColor: selectedIds.includes(emp._id) ? '#D29191' : '#F1E1E1',
+                      backgroundColor: !emp.is_ready ? '#FFF9F9' : (selectedIds.includes(emp.id) ? '#FFF5F5' : '#FFFFFF'),
+                      borderColor: !emp.is_ready ? '#FFCACA' : (selectedIds.includes(emp.id) ? '#D29191' : '#F1E1E1'),
                       borderStyle: 'solid',
                       borderWidth: '1px',
-                      cursor: 'pointer'
+                      cursor: emp.is_ready ? 'pointer' : 'not-allowed',
+                      opacity: emp.is_ready ? 1 : 0.8
                     }}
                     onClick={(e) => {
                       e.preventDefault();
-                      toggleSelect(emp._id);
+                      if (emp.is_ready) toggleSelect(emp.id);
                     }}
                   >
                     <input 
                       type="checkbox"
                       className="form-check-input"
                       style={{ transform: 'scale(1.2)', flexShrink: 0, pointerEvents: 'none' }}
-                      checked={selectedIds.includes(emp._id)}
+                      checked={selectedIds.includes(emp.id)}
+                      disabled={!emp.is_ready}
                       onChange={() => {}}
                       readOnly
                     />
@@ -212,28 +215,33 @@ const Payroll = () => {
                     <Row className="align-items-center">
                       <Col md={2}>
                         <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Emp No.</small>
-                        <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.employeeId}</span>
+                        <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.employee_id}</span>
                       </Col>
                       <Col md={3}>
                         <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Name</small>
-                        <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.lastName}, {emp.firstName}</span>
+                        <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.full_name}</span>
                       </Col>
-                      <Col md={3}>
-                        <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Department</small>
-                        <span className="text-muted" style={{ fontSize: '14px' }}>{emp.department || 'Unassigned'}</span>
+                      <Col md={4}>
+                        {!emp.is_ready ? (
+                          <div>
+                            <small className="d-block text-danger text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>ISSUES FOUND</small>
+                            <div className="text-danger small fw-bold">
+                              {emp.issues.join(', ')}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-success small fw-bold d-flex align-items-center gap-1">
+                            <Check size={14} /> Ready for Payroll
+                          </div>
+                        )}
                       </Col>
-                      <Col md={2}>
-                        <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Position</small>
-                        <span className="text-muted" style={{ fontSize: '14px' }}>{emp.position || 'Staff'}</span>
-                      </Col>
-                      <Col md={2} className="text-end">
-                        <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Type</small>
+                      <Col md={3} className="text-end">
                         <Badge 
-                          bg={emp.isActive ? 'success' : 'warning'} 
-                          className={`px-3 py-1 ${emp.isActive ? 'bg-success-subtle text-success border border-success' : 'bg-warning-subtle text-warning border border-warning'}`}
+                          bg={emp.is_ready ? 'success' : 'danger'} 
+                          className={`px-3 py-1 ${emp.is_ready ? 'bg-success-subtle text-success border border-success' : 'bg-danger-subtle text-danger border border-danger'}`}
                           style={{ borderRadius: '6px', fontSize: '11px' }}
                         >
-                          {emp.isActive ? 'Regular' : 'Probationary'}
+                          {emp.is_ready ? 'Eligible' : 'Ineligible'}
                         </Badge>
                       </Col>
                     </Row>
@@ -290,18 +298,26 @@ const Payroll = () => {
             <tr className="text-muted" style={{ fontSize: '12px' }}>
               <th>EMPLOYEE ID</th>
               <th>NAME</th>
-              <th>DEPARTMENT</th>
-              <th>POSITION</th>
+              <th>BASIC SALARY</th>
+              <th>ALLOWANCES</th>
+              <th>LOANS</th>
               <th className="text-end">ACTION</th>
             </tr>
           </thead>
           <tbody>
             {filteredEmployees.map(emp => (
-              <tr key={emp._id}>
-                <td className="fw-bold">{emp.employeeId}</td>
+              <tr key={emp.id}>
+                <td className="fw-bold">{emp.employee_id}</td>
                 <td className="fw-bold">{emp.lastName}, {emp.firstName}</td>
-                <td className="text-muted">{emp.department}</td>
-                <td className="text-muted">{emp.position || 'Staff'}</td>
+                <td className="fw-bold text-dark">
+                   ₱{(emp.basicSalary || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </td>
+                <td className="text-success small fw-bold">
+                   ₱{((emp.housingAllowance || 0) + (emp.transportAllowance || 0) + (emp.mealAllowance || 0) + (emp.otherAllowances || 0)).toLocaleString()}
+                </td>
+                <td className="text-danger small fw-bold">
+                   ₱{((emp.sssLoan || 0) + (emp.pagIbigLoan || 0) + (emp.companyLoan || 0)).toLocaleString()}
+                </td>
                 <td className="text-end">
                   <Button 
                     variant="link" 
@@ -309,7 +325,7 @@ const Payroll = () => {
                     style={{ color: '#D29191' }}
                     onClick={() => handleEditConfig(emp)}
                   >
-                    <Edit size={18} />
+                    <Eye size={18} />
                   </Button>
                 </td>
               </tr>
@@ -321,118 +337,160 @@ const Payroll = () => {
       <Modal show={showConfigModal} onHide={() => setShowConfigModal(false)} size="lg" centered>
         <Modal.Header closeButton className="border-0 pb-0">
           <Modal.Title className="fw-bold" style={{ color: '#5A4343' }}>
-            Configure Payroll: {editingEmployee?.lastName}, {editingEmployee?.firstName}
+            Payroll Profile: {editingEmployee?.lastName}, {editingEmployee?.firstName}
           </Modal.Title>
         </Modal.Header>
         <Modal.Body className="p-4">
           <Form>
-            <h6 className="fw-bold mb-3 border-bottom pb-2">Basic Salary & Rates</h6>
-            <Row className="mb-4">
+            {/* --- SECTION 1: EARNINGS --- */}
+            <h6 className="fw-bold mb-3 border-bottom pb-2 text-primary">1. Monthly Earnings & Allowances (from HR)</h6>
+            <Row className="mb-3">
               <Col md={4}>
                 <Form.Group>
-                  <Form.Label>Basic Salary</Form.Label>
+                  <Form.Label className="small fw-bold">Basic Salary</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={configData.basicSalary || ''} 
-                    onChange={e => setConfigData({...configData, basicSalary: parseFloat(e.target.value)})}
+                    readOnly
+                    className="bg-light"
                   />
                 </Form.Group>
               </Col>
-              <Col md={4}>
+              <Col md={2}>
                 <Form.Group>
-                  <Form.Label>Absence Penalty Rate</Form.Label>
-                  <Form.Control 
-                    type="number" 
-                    value={configData.absencePenaltyRate || ''} 
-                    onChange={e => setConfigData({...configData, absencePenaltyRate: parseFloat(e.target.value)})}
-                  />
-                </Form.Group>
-              </Col>
-              <Col md={4}>
-                <Form.Group>
-                  <Form.Label>Late Penalty Rate</Form.Label>
-                  <Form.Control 
-                    type="number" 
-                    value={configData.latePenaltyRate || ''} 
-                    onChange={e => setConfigData({...configData, latePenaltyRate: parseFloat(e.target.value)})}
-                  />
-                </Form.Group>
-              </Col>
-            </Row>
-
-            <h6 className="fw-bold mb-3 border-bottom pb-2">Allowances</h6>
-            <Row className="mb-4">
-              <Col md={3}>
-                <Form.Group>
-                  <Form.Label>Housing</Form.Label>
+                  <Form.Label className="small fw-bold">Housing</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={configData.housingAllowance || ''} 
-                    onChange={e => setConfigData({...configData, housingAllowance: parseFloat(e.target.value)})}
+                    readOnly
+                    className="bg-light"
                   />
                 </Form.Group>
               </Col>
-              <Col md={3}>
+              <Col md={2}>
                 <Form.Group>
-                  <Form.Label>Transport</Form.Label>
+                  <Form.Label className="small fw-bold">Transport</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={configData.transportAllowance || ''} 
-                    onChange={e => setConfigData({...configData, transportAllowance: parseFloat(e.target.value)})}
+                    readOnly
+                    className="bg-light"
                   />
                 </Form.Group>
               </Col>
-              <Col md={3}>
+              <Col md={2}>
                 <Form.Group>
-                  <Form.Label>Meal</Form.Label>
+                  <Form.Label className="small fw-bold">Meal</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={configData.mealAllowance || ''} 
-                    onChange={e => setConfigData({...configData, mealAllowance: parseFloat(e.target.value)})}
+                    readOnly
+                    className="bg-light"
                   />
                 </Form.Group>
               </Col>
-              <Col md={3}>
+              <Col md={2}>
                 <Form.Group>
-                  <Form.Label>Other</Form.Label>
+                  <Form.Label className="small fw-bold">Other</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={configData.otherAllowances || ''} 
-                    onChange={e => setConfigData({...configData, otherAllowances: parseFloat(e.target.value)})}
+                    readOnly
+                    className="bg-light"
                   />
                 </Form.Group>
               </Col>
             </Row>
 
-            <h6 className="fw-bold mb-3 border-bottom pb-2">Deductions & Loans</h6>
-            <Row>
-              <Col md={4}>
+            {/* --- SECTION 2: STATUTORY (READ-ONLY) --- */}
+            <h6 className="fw-bold mb-3 border-bottom pb-2 d-flex justify-content-between align-items-center mt-4">
+              2. Statutory Deductions
+              <Badge bg="info-subtle" className="text-info border border-info fw-normal" style={{ fontSize: '10px' }}>Auto-calculated by Law</Badge>
+            </h6>
+            <Row className="mb-3">
+              <Col md={3}>
                 <Form.Group>
-                  <Form.Label>Withholding Tax</Form.Label>
-                  <Form.Control 
-                    type="number" 
-                    value={configData.withholdingTax || ''} 
-                    onChange={e => setConfigData({...configData, withholdingTax: parseFloat(e.target.value)})}
-                  />
+                  <Form.Label className="small text-muted">SSS Contribution</Form.Label>
+                  <Form.Control type="number" value={configData.sssContribution || ''} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
-              <Col md={4}>
+              <Col md={3}>
                 <Form.Group>
-                  <Form.Label>Pag-IBIG Contribution</Form.Label>
-                  <Form.Control 
-                    type="number" 
-                    value={configData.pagIbigContribution || ''} 
-                    onChange={e => setConfigData({...configData, pagIbigContribution: parseFloat(e.target.value)})}
-                  />
+                  <Form.Label className="small text-muted">PhilHealth</Form.Label>
+                  <Form.Control type="number" value={configData.philHealthContribution || ''} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label className="small text-muted">Pag-IBIG</Form.Label>
+                  <Form.Control type="number" value={configData.pagIbigContribution || ''} readOnly className="bg-light text-muted" />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group>
+                  <Form.Label className="small text-muted">Withholding Tax</Form.Label>
+                  <Form.Control type="number" value={configData.withholdingTax || ''} readOnly className="bg-light text-muted" />
+                </Form.Group>
+              </Col>
+            </Row>
+
+            {/* --- SECTION 3: LOANS & RATES --- */}
+            <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger">3. Active Loans & Penalty Rates (from HR)</h6>
+            <Row className="mb-3">
               <Col md={4}>
                 <Form.Group>
-                  <Form.Label>SSS Loan</Form.Label>
+                  <Form.Label className="small fw-bold text-danger">SSS Loan</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={configData.sssLoan || ''} 
-                    onChange={e => setConfigData({...configData, sssLoan: parseFloat(e.target.value)})}
+                    readOnly
+                    className="bg-light"
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label className="small fw-bold text-danger">Pag-IBIG Loan</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.pagIbigLoan || ''} 
+                    readOnly
+                    className="bg-light"
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={4}>
+                <Form.Group>
+                  <Form.Label className="small fw-bold text-danger">Company Loan</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.companyLoan || ''} 
+                    readOnly
+                    className="bg-light"
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+            <Row>
+              <Col md={6}>
+                <Form.Group>
+                  <Form.Label className="small fw-bold">Absence Penalty (Per Day)</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.absencePenaltyRate || ''} 
+                    readOnly
+                    className="bg-light"
+                  />
+                </Form.Group>
+              </Col>
+              <Col md={6}>
+                <Form.Group>
+                  <Form.Label className="small fw-bold">Late Penalty (Per Hour)</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    value={configData.latePenaltyRate || ''} 
+                    readOnly
+                    className="bg-light"
                   />
                 </Form.Group>
               </Col>
@@ -440,16 +498,8 @@ const Payroll = () => {
           </Form>
         </Modal.Body>
         <Modal.Footer className="border-0">
-          <Button variant="outline-secondary" className="rounded-pill px-4" onClick={() => setShowConfigModal(false)}>
-            Cancel
-          </Button>
-          <Button 
-            className="rounded-pill px-4 border-0" 
-            style={{ backgroundColor: '#D29191' }} 
-            onClick={handleSaveConfig}
-            disabled={isSavingConfig}
-          >
-            {isSavingConfig ? <Spinner size="sm" /> : 'Save Changes'}
+          <Button variant="outline-secondary" className="rounded-pill px-5" onClick={() => setShowConfigModal(false)}>
+            Close Profile
           </Button>
         </Modal.Footer>
       </Modal>

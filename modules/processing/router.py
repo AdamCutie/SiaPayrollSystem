@@ -25,6 +25,40 @@ class SelectivePayrollRequest(PayrollRunRequest):
     """Schema for Figma Wizard Step 2: Selected Employees only."""
     employee_ids: List[str]
 
+class EmployeeReadiness(BaseModel):
+    """Status of an employee's data before payroll processing."""
+    id: str
+    employee_id: str  # human-readable ID
+    full_name: str
+    firstName: str
+    lastName: str
+    department: str
+    role: str
+    is_ready: bool
+    issues: List[str] = []
+    missing_config: bool = False
+    
+    # Salary Data for Table View
+    basicSalary: float = 0.0
+    housingAllowance: float = 0.0
+    transportAllowance: float = 0.0
+    mealAllowance: float = 0.0
+    otherAllowances: float = 0.0
+    sssLoan: float = 0.0
+    pagIbigLoan: float = 0.0
+    companyLoan: float = 0.0
+
+class PayrollReadinessResponse(BaseModel):
+    """Summary of all active employees and their payroll health."""
+    ready_count: int
+    incomplete_count: int
+    employees: List[EmployeeReadiness]
+
+@router.get("/readiness", response_model=PayrollReadinessResponse)
+async def get_payroll_readiness():
+    """Endpoint for Figma Wizard Step 2: Pre-flight check."""
+    return await PayrollProcessingService.get_payroll_readiness()
+
 @router.post("/run")
 async def run_payroll(request: PayrollRunRequest):
     try:

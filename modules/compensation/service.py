@@ -33,7 +33,7 @@ class CompensationService:
         # 1. Government Contributions (Statutory)
         sss = AgencyCalculator.calculate_sss(config.basicSalary)
         philhealth = AgencyCalculator.calculate_philhealth(config.basicSalary)
-        pagibig = config.pagIbigContribution
+        pagibig = AgencyCalculator.calculate_pagibig(config.basicSalary)
 
         statutory_total = sss + philhealth + pagibig
 
@@ -89,7 +89,7 @@ class CompensationService:
         # 2. Statutory Deductions
         sss = AgencyCalculator.calculate_sss(config.basicSalary)
         philhealth = AgencyCalculator.calculate_philhealth(config.basicSalary)
-        pagibig = config.pagIbigContribution
+        pagibig = AgencyCalculator.calculate_pagibig(config.basicSalary)
         statutory_total = sss + philhealth + pagibig
 
         # 3. Absence & Excess Days Logic

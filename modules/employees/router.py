@@ -18,7 +18,7 @@ router = APIRouter(
     dependencies=[Depends(require_user)],
 )
 
-@router.get("/list", response_model=List[HREmployeeRead])
+@router.get("/list", response_model=List[HREmployeeRead], response_model_by_alias=False)
 async def get_employee_list(_: object = Depends(require_admin)):
     """
     Fetches the list of all active employees for the management table.
@@ -28,38 +28,40 @@ async def get_employee_list(_: object = Depends(require_admin)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch employees: {str(e)}")
 
-@router.get("/{employee_id}/payroll-config", response_model=Optional[HRPayrollConfigRead])
+@router.get("/{employee_id}/payroll-config", response_model=Optional[HRPayrollConfigRead], response_model_by_alias=False)
 async def get_payroll_configuration(employee_id: str, _: object = Depends(require_admin)):
     """
     Fetches the payroll configuration for a specific employee.
+    If statutory fields are 0, we pre-calculate them for the UI view.
     """
     try:
+        from modules.agencies.service import AgencyCalculator
+        
         employee = await get_employee_by_id(employee_id)
         if not employee:
             raise HTTPException(status_code=404, detail="Employee not found")
         
         full_name = f"{employee.lastName}, {employee.firstName}"
-        return await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
+        config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
+        
+        if config:
+            # If the database has 0.0, we show the calculated legal values in the UI
+            if config.sssContribution == 0:
+                config.sssContribution = AgencyCalculator.calculate_sss(config.basicSalary)
+            if config.philHealthContribution == 0:
+                config.philHealthContribution = AgencyCalculator.calculate_philhealth(config.basicSalary)
+            if config.pagIbigContribution == 0:
+                config.pagIbigContribution = AgencyCalculator.calculate_pagibig(config.basicSalary)
+            
+            # Estimate withholding tax for the UI (Gross - Statutory)
+            if config.withholdingTax == 0:
+                statutory = config.sssContribution + config.philHealthContribution + config.pagIbigContribution
+                taxable = max(0, config.basicSalary - statutory)
+                config.withholdingTax = AgencyCalculator.calculate_withholding_tax(taxable)
+                
+        return config
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch config: {str(e)}")
-
-@router.post("/{employee_id}/payroll-config")
-async def update_payroll_configuration(
-    employee_id: str, 
-    update_data: HRPayrollConfigUpdate,
-    _: object = Depends(require_admin)
-):
-    """
-    Updates (overrides) the payroll configuration for a specific employee.
-    """
-    try:
-        success = await update_payroll_config_override(employee_id, update_data)
-        if success:
-            return {"status": "success", "message": "Payroll configuration updated."}
-        else:
-            return {"status": "no_change", "message": "No changes were made or update failed."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update config: {str(e)}")
 
 @router.get("/profile/{employee_id}")
 async def get_employee_profile(employee_id: str, user: CurrentUser = Depends(get_current_user)):

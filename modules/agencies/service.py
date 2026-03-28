@@ -58,3 +58,14 @@ class AgencyCalculator:
             return 1800.0
         else:
             return 2250.0 # Cap for 50,000 salary ceiling
+
+    @staticmethod
+    def calculate_pagibig(salary: float) -> float:
+        """
+        Pag-IBIG (HDMF) Rules:
+        - Monthly Compensation Ceiling: 10,000
+        - Employee Share: 2% of basic salary
+        - Maximum Employee Contribution: 200.00
+        """
+        basis = min(salary, 10000.0)
+        return round(basis * 0.02, 2)

@@ -75,6 +75,63 @@ class PayrollProcessingService:
         return issues
 
     @classmethod
+    async def get_payroll_readiness(cls) -> dict:
+        """
+        Scans all active employees and flags any issues that would cause a skip.
+        Useful for the Wizard Step 2: Employee Selection.
+        """
+        employees = await get_all_active_employees()
+        results = []
+        ready_count = 0
+        incomplete_count = 0
+
+        for emp in employees:
+            full_name = f"{emp.lastName}, {emp.firstName}"
+            config = await get_employee_payroll_config(emp.id, emp.employeeId, full_name)
+            
+            issues = []
+            missing_config = False
+            
+            if not config:
+                issues.append("No salary profile found in HR system.")
+                missing_config = True
+            else:
+                issues = cls._validate_payroll_config(config)
+            
+            is_ready = len(issues) == 0
+            if is_ready:
+                ready_count += 1
+            else:
+                incomplete_count += 1
+                
+            results.append({
+                "id": str(emp.id),
+                "employee_id": emp.employeeId,
+                "full_name": full_name,
+                "firstName": emp.firstName,
+                "lastName": emp.lastName,
+                "department": emp.department,
+                "role": emp.role,
+                "is_ready": is_ready,
+                "issues": issues,
+                "missing_config": missing_config,
+                "basicSalary": config.basicSalary if config else 0,
+                "housingAllowance": config.housingAllowance if config else 0,
+                "transportAllowance": config.transportAllowance if config else 0,
+                "mealAllowance": config.mealAllowance if config else 0,
+                "otherAllowances": config.otherAllowances if config else 0,
+                "sssLoan": config.sssLoan if config else 0,
+                "pagIbigLoan": config.pagIbigLoan if config else 0,
+                "companyLoan": config.companyLoan if config else 0
+            })
+            
+        return {
+            "ready_count": ready_count,
+            "incomplete_count": incomplete_count,
+            "employees": results
+        }
+
+    @classmethod
     async def run_full_payroll(cls, start_date: datetime, end_date: datetime) -> int:
         """
         Executes a payroll run for all active employees.
