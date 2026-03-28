@@ -117,7 +117,59 @@ const Payroll = () => {
     }
   };
 
-  // Removed handleSaveConfig and onSalaryChange as they are no longer needed for a read-only view.
+  const handleSaveConfig = async () => {
+    setIsSavingConfig(true);
+    try {
+      await axios.post(`http://localhost:8000/payroll/employees/${editingEmployee.id}/payroll-config`, configData);
+      setShowConfigModal(false);
+      setIsSavingConfig(false);
+      alert("Changes saved to Payroll Overrides successfully!");
+      fetchEmployees(); // Refresh list to see new values
+    } catch (err) {
+      console.error("Failed to save config", err);
+      setIsSavingConfig(false);
+      alert("Error saving payroll manipulation.");
+    }
+  };
+
+  // --- Real-time Statutory Calculations ---
+  const calculateStatutory = (salary) => {
+    if (!salary || salary <= 0) return { sss: 0, phil: 0, pag: 0, tax: 0 };
+    
+    let sss = 2250;
+    if (salary <= 10000) sss = 450;
+    else if (salary <= 20000) sss = 900;
+    else if (salary <= 30000) sss = 1350;
+    else if (salary <= 40000) sss = 1800;
+
+    const philBasis = Math.max(10000, Math.min(salary, 100000));
+    const phil = Math.round(philBasis * 0.025 * 100) / 100;
+    const pag = Math.min(salary * 0.02, 200);
+
+    const statutory = sss + phil + pag;
+    const taxable = Math.max(0, salary - statutory);
+    let tax = 0;
+    if (taxable > 20833) {
+        if (taxable <= 33333) tax = (taxable - 20833) * 0.20;
+        else if (taxable <= 66666) tax = 2500 + (taxable - 33333) * 0.25;
+        else if (taxable <= 166666) tax = 10833.33 + (taxable - 66666) * 0.30;
+    }
+
+    return { sss, phil, pag, tax: Math.round(tax * 100) / 100 };
+  };
+
+  const onSalaryChange = (newSalary) => {
+    const val = parseFloat(newSalary) || 0;
+    const { sss, phil, pag, tax } = calculateStatutory(val);
+    setConfigData({
+        ...configData,
+        basicSalary: val,
+        sssContribution: sss,
+        philHealthContribution: phil,
+        pagIbigContribution: pag,
+        withholdingTax: tax
+    });
+  };
 
   const handleViewPayslip = (record) => {
     setSelectedPayslip(record);
@@ -133,6 +185,23 @@ const Payroll = () => {
     record.full_name.toLowerCase().includes(payslipSearch.toLowerCase()) ||
     record.employee_number.includes(payslipSearch)
   );
+
+  const getContractBadge = (type) => {
+    // HR Rule: Map all temporary types to "Probationary"
+    const isRegular = type === 'Regular';
+    const displayLabel = isRegular ? 'Regular' : 'Probationary';
+    const color = isRegular ? 'success' : 'warning';
+    
+    return (
+      <Badge 
+        bg={`${color}-subtle`} 
+        className={`text-${color} border border-${color} px-3`}
+        style={{ fontSize: '10px' }}
+      >
+        {displayLabel}
+      </Badge>
+    );
+  };
 
   const renderGenerationContent = () => {
     switch (step) {
@@ -219,7 +288,10 @@ const Payroll = () => {
                       </Col>
                       <Col md={3}>
                         <small className="d-block text-muted text-uppercase mb-1" style={{ fontSize: '10px', fontWeight: '700' }}>Name</small>
-                        <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.full_name}</span>
+                        <div className="d-flex align-items-center gap-2">
+                          <span className="fw-bold" style={{ fontSize: '14px' }}>{emp.full_name}</span>
+                          {getContractBadge(emp.contractType)}
+                        </div>
                       </Col>
                       <Col md={4}>
                         {!emp.is_ready ? (
@@ -298,6 +370,7 @@ const Payroll = () => {
             <tr className="text-muted" style={{ fontSize: '12px' }}>
               <th>EMPLOYEE ID</th>
               <th>NAME</th>
+              <th>TYPE</th>
               <th>BASIC SALARY</th>
               <th>ALLOWANCES</th>
               <th>LOANS</th>
@@ -309,6 +382,9 @@ const Payroll = () => {
               <tr key={emp.id}>
                 <td className="fw-bold">{emp.employee_id}</td>
                 <td className="fw-bold">{emp.lastName}, {emp.firstName}</td>
+                <td>
+                  {getContractBadge(emp.contractType)}
+                </td>
                 <td className="fw-bold text-dark">
                    ₱{(emp.basicSalary || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </td>
@@ -343,7 +419,10 @@ const Payroll = () => {
         <Modal.Body className="p-4">
           <Form>
             {/* --- SECTION 1: EARNINGS --- */}
-            <h6 className="fw-bold mb-3 border-bottom pb-2 text-primary">1. Monthly Earnings & Allowances (from HR)</h6>
+            <h6 className="fw-bold mb-3 border-bottom pb-2 text-primary d-flex justify-content-between">
+              1. Monthly Earnings & Allowances 
+              {editingEmployee?.contractType === 'Regular' && <Badge bg="primary-subtle" className="text-primary border border-primary fw-normal" style={{ fontSize: '10px' }}>Editable</Badge>}
+            </h6>
             <Row className="mb-3">
               <Col md={4}>
                 <Form.Group>
@@ -351,8 +430,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.basicSalary || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? 'border-primary' : 'bg-light'}
+                    onChange={e => onSalaryChange(e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -362,8 +442,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.housingAllowance || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, housingAllowance: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
@@ -373,8 +454,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.transportAllowance || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, transportAllowance: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
@@ -384,8 +466,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.mealAllowance || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, mealAllowance: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
@@ -395,14 +478,15 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.otherAllowances || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, otherAllowances: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
             </Row>
 
-            {/* --- SECTION 2: STATUTORY (READ-ONLY) --- */}
+            {/* --- SECTION 2: STATUTORY (ALWAYS READ-ONLY) --- */}
             <h6 className="fw-bold mb-3 border-bottom pb-2 d-flex justify-content-between align-items-center mt-4">
               2. Statutory Deductions
               <Badge bg="info-subtle" className="text-info border border-info fw-normal" style={{ fontSize: '10px' }}>Auto-calculated by Law</Badge>
@@ -435,7 +519,7 @@ const Payroll = () => {
             </Row>
 
             {/* --- SECTION 3: LOANS & RATES --- */}
-            <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger">3. Active Loans & Penalty Rates (from HR)</h6>
+            <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger">3. Active Loans & Penalty Rates</h6>
             <Row className="mb-3">
               <Col md={4}>
                 <Form.Group>
@@ -443,8 +527,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.sssLoan || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, sssLoan: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
@@ -454,8 +539,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.pagIbigLoan || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, pagIbigLoan: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
@@ -465,8 +551,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.companyLoan || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, companyLoan: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
@@ -478,8 +565,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.absencePenaltyRate || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, absencePenaltyRate: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
@@ -489,8 +577,9 @@ const Payroll = () => {
                   <Form.Control 
                     type="number" 
                     value={configData.latePenaltyRate || ''} 
-                    readOnly
-                    className="bg-light"
+                    readOnly={editingEmployee?.contractType !== 'Regular'}
+                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
+                    onChange={e => setConfigData({...configData, latePenaltyRate: parseFloat(e.target.value)})}
                   />
                 </Form.Group>
               </Col>
@@ -498,9 +587,19 @@ const Payroll = () => {
           </Form>
         </Modal.Body>
         <Modal.Footer className="border-0">
-          <Button variant="outline-secondary" className="rounded-pill px-5" onClick={() => setShowConfigModal(false)}>
-            Close Profile
+          <Button variant="outline-secondary" className="rounded-pill px-4" onClick={() => setShowConfigModal(false)}>
+            {editingEmployee?.contractType === 'Regular' ? 'Cancel' : 'Close Profile'}
           </Button>
+          {editingEmployee?.contractType === 'Regular' && (
+            <Button 
+              className="rounded-pill px-5 border-0 shadow-sm" 
+              style={{ backgroundColor: '#D29191', fontWeight: '600' }}
+              onClick={handleSaveConfig}
+              disabled={isSavingConfig}
+            >
+              {isSavingConfig ? <Spinner size="sm" /> : 'Save Changes'}
+            </Button>
+          )}
         </Modal.Footer>
       </Modal>
     </div>
@@ -613,35 +712,32 @@ const Payroll = () => {
                   <span className="text-muted">Basic Salary</span>
                   <span>₱{selectedPayslip.basic_salary.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
-                {selectedPayslip.total_overtime > 0 && (
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                    <span className="text-muted">Overtime Pay</span>
-                    <span>₱{selectedPayslip.total_overtime.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                
+                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                  <span className="text-muted">Overtime Pay</span>
+                  <span>₱{(selectedPayslip.total_overtime || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+
+                <div className="mt-2 pt-2 border-top-dashed">
+                  <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Allowances</small>
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                    <span className="ps-2">• Housing</span>
+                    <span>₱{(selectedPayslip.housing_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
-                )}
-                {(selectedPayslip.housing_allowance > 0 || selectedPayslip.transport_allowance > 0 || selectedPayslip.meal_allowance > 0 || selectedPayslip.other_allowances > 0) && (
-                  <div className="mt-2 pt-2 border-top-dashed">
-                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Allowances</small>
-                    {selectedPayslip.housing_allowance > 0 && (
-                      <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                        <span className="ps-2">• Housing</span>
-                        <span>₱{selectedPayslip.housing_allowance.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {selectedPayslip.transport_allowance > 0 && (
-                      <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                        <span className="ps-2">• Transport</span>
-                        <span>₱{selectedPayslip.transport_allowance.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {selectedPayslip.meal_allowance > 0 && (
-                      <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                        <span className="ps-2">• Meal</span>
-                        <span>₱{selectedPayslip.meal_allowance.toLocaleString()}</span>
-                      </div>
-                    )}
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                    <span className="ps-2">• Transport</span>
+                    <span>₱{(selectedPayslip.transport_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
-                )}
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                    <span className="ps-2">• Meal</span>
+                    <span>₱{(selectedPayslip.meal_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                    <span className="ps-2">• Other</span>
+                    <span>₱{(selectedPayslip.other_allowances || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+
                 <div className="d-flex justify-content-between mt-2 pt-2 border-top text-success fw-bold">
                   <span>Gross Pay</span>
                   <span>₱{selectedPayslip.gross_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -666,26 +762,23 @@ const Payroll = () => {
                   <span className="text-muted">Withholding Tax</span>
                   <span>-₱{selectedPayslip.withholding_tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
-                {selectedPayslip.absence_deduction > 0 && (
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                    <span className="text-muted text-danger">Absence Deduction</span>
-                    <span className="text-danger">-₱{selectedPayslip.absence_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                  </div>
-                )}
                 
-                {selectedPayslip.total_loans > 0 && (
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                    <span className="text-muted">Loans</span>
-                    <span>-₱{selectedPayslip.total_loans.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                  </div>
-                )}
+                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
+                  <span className="text-muted text-danger">Absence Deduction</span>
+                  <span className="text-danger">-₱{selectedPayslip.absence_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
                 
-                {selectedPayslip.total_penalties > 0 && (
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                    <span className="text-muted text-danger">Penalties (Absence/Late)</span>
-                    <span className="text-danger">-₱{selectedPayslip.total_penalties.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <div className="mt-2 pt-2 border-top-dashed">
+                  <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Loans & Penalties</small>
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                    <span className="ps-2">• Total Loans</span>
+                    <span>-₱{(selectedPayslip.total_loans || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                   </div>
-                )}
+                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                    <span className="ps-2">• Penalties</span>
+                    <span>-₱{(selectedPayslip.total_penalties || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
 
                 <div className="d-flex justify-content-between mt-2 pt-2 border-top text-danger fw-bold">
                   <span>Total Deductions</span>

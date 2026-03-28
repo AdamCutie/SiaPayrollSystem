@@ -63,6 +63,26 @@ async def get_payroll_configuration(employee_id: str, _: object = Depends(requir
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch config: {str(e)}")
 
+@router.post("/{employee_id}/payroll-config")
+async def update_payroll_configuration(
+    employee_id: str, 
+    update_data: HRPayrollConfigUpdate,
+    _: object = Depends(require_admin)
+):
+    """
+    Saves a payroll configuration override to OUR database.
+    Only used for 'Regular' employees as per HR policy.
+    """
+    try:
+        from integrations.hr.adapter import update_payroll_config_override
+        success = await update_payroll_config_override(employee_id, update_data)
+        if success:
+            return {"status": "success", "message": "Payroll manipulation saved to local DB."}
+        else:
+            return {"status": "no_change", "message": "No changes were saved."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save manipulation: {str(e)}")
+
 @router.get("/profile/{employee_id}")
 async def get_employee_profile(employee_id: str, user: CurrentUser = Depends(get_current_user)):
     """

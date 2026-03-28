@@ -23,6 +23,8 @@ class HREmployeeRead(BaseModel):
     department: str
     role: str
     isActive: bool
+    contractType: str = "Provisionary" # "Regular" or "Provisionary"
+    baseSalary: Money = 0.0 # Discovered directly in Employees collection
 
 class HRPayrollConfigRead(BaseModel):
     """Schema for reading salary configurations from legacy HR DB"""

@@ -112,6 +112,7 @@ class PayrollProcessingService:
                 "lastName": emp.lastName,
                 "department": emp.department,
                 "role": emp.role,
+                "contractType": emp.contractType,
                 "is_ready": is_ready,
                 "issues": issues,
                 "missing_config": missing_config,
@@ -173,6 +174,11 @@ class PayrollProcessingService:
             days_present = days_present_logs + approved_leaves
             expected_workdays = cls._count_weekdays(start_date, end_date)
 
+            # 🛡️ ATTENDANCE REALITY GUARD
+            if days_present > (expected_workdays + 4): # Allow 4 days for weekend/OT flexibility
+                print(f"TRUTHFULNESS ALERT: {full_name} has {days_present}d present in a {expected_workdays}d period. Skipping suspicious record.")
+                continue
+
             # 2. Perform calculations using attendance data
             breakdown = await CompensationService.calculate_payroll_breakdown(
                 config, 
@@ -180,6 +186,11 @@ class PayrollProcessingService:
                 expected_workdays=expected_workdays,
                 days_present=days_present
             )
+
+            # 🛡️ NEGATIVE PAY GUARD
+            if breakdown["net_pay"] < 0:
+                print(f"FINANCIAL PROTECTION: {full_name} resulted in negative net pay (₱{breakdown['net_pay']}). Skipping to prevent debt generation.")
+                continue
 
             # 3. Create Snapshot
             snapshot = PayrollSnapshot(
@@ -262,6 +273,11 @@ class PayrollProcessingService:
             days_present = days_present_logs + approved_leaves
             expected_workdays = cls._count_weekdays(start_date, end_date)
 
+            # 🛡️ ATTENDANCE REALITY GUARD
+            if days_present > (expected_workdays + 4): # Flexibility for OT/weekends
+                print(f"TRUTHFULNESS ALERT: {full_name} has {days_present}d present in a {expected_workdays}d period. Skipping.")
+                continue
+
             # 2. Perform calculations
             breakdown = await CompensationService.calculate_payroll_breakdown(
                 config, 
@@ -269,6 +285,11 @@ class PayrollProcessingService:
                 expected_workdays=expected_workdays,
                 days_present=days_present
             )
+
+            # 🛡️ NEGATIVE PAY GUARD
+            if breakdown["net_pay"] < 0:
+                print(f"FINANCIAL PROTECTION: {full_name} resulted in negative net pay (₱{breakdown['net_pay']}). Skipping.")
+                continue
 
             # 3. Create Snapshot
             snapshot = PayrollSnapshot(

@@ -71,15 +71,22 @@ class CompensationService:
         including automatic deductions for absences.
         """
         # 1. Pro-rated Earnings (Attendance-Based)
-        attendance_ratio = days_present / max(1, expected_workdays)
+        # If they worked full expected workdays or more, they get 100% of allowance.
+        attendance_ratio = min(1.0, days_present / max(1, expected_workdays))
         
-        housing = round(config.housingAllowance * attendance_ratio, 2)
-        transport = round(config.transportAllowance * attendance_ratio, 2)
-        meal = round(config.mealAllowance * attendance_ratio, 2)
-        other = round(config.otherAllowances * attendance_ratio, 2)
+        # Pull values from config, ensuring defaults to 0 if missing
+        h_base = getattr(config, 'housingAllowance', 0) or 0
+        t_base = getattr(config, 'transportAllowance', 0) or 0
+        m_base = getattr(config, 'mealAllowance', 0) or 0
+        o_base = getattr(config, 'otherAllowances', 0) or 0
+
+        housing = round(float(h_base) * attendance_ratio, 2)
+        transport = round(float(t_base) * attendance_ratio, 2)
+        meal = round(float(m_base) * attendance_ratio, 2)
+        other = round(float(o_base) * attendance_ratio, 2)
         
         pro_rated_allowances = housing + transport + meal + other
-        gross_without_ot = config.basicSalary + pro_rated_allowances
+        gross_without_ot = float(config.basicSalary) + pro_rated_allowances
 
         # sum up overtime
         ot_coll = db["OvertimeRecords"]

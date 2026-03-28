@@ -23,15 +23,24 @@ async def get_hr_attendance_count(
 ) -> int:
     """
     Queries real attendance logs from the HR System database.
-    Source of Truth: Legacy HR System.
+    Handles both String-based and Object-based dates.
     """
     collection = hr_db[ATTENDANCE_COLLECTION]
     
-    # Updated to match real HR structure: 'employeeId' (human number) and 'date'
-    count = await collection.count_documents({
+    # Formats for query
+    s_str = start_date.strftime("%Y-%m-%dT%H:%M:%S")
+    e_str = end_date.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # UNIVERSAL QUERY: Check both Date Objects AND Strings
+    query = {
         "employeeId": employee_number,
-        "date": {"$gte": start_date, "$lte": end_date}
-    })
+        "$or": [
+            {"date": {"$gte": start_date, "$lte": end_date}}, # For BSON Date objects
+            {"date": {"$gte": s_str, "$lte": e_str}}          # For ISO Strings
+        ]
+    }
+
+    count = await collection.count_documents(query)
     return count
 
 async def get_hr_approved_leaves(employee_id_str: str, start_date: datetime, end_date: datetime) -> int:
@@ -39,10 +48,14 @@ async def get_hr_approved_leaves(employee_id_str: str, start_date: datetime, end
     Queries real approved leave requests from the HR System database.
     """
     collection = hr_db[LEAVES_COLLECTION]
+    
+    s_str = start_date.strftime("%Y-%m-%dT%H:%M:%S")
+    e_str = end_date.strftime("%Y-%m-%dT%H:%M:%S")
+
     count = await collection.count_documents({
         "employeeId": employee_id_str,
-        "startDate": {"$gte": start_date},
-        "endDate": {"$lte": end_date},
+        "startDate": {"$gte": s_str},
+        "endDate": {"$lte": e_str},
         "status": "approved"
     })
     return count
@@ -63,9 +76,9 @@ async def get_hr_attendance_list(
     if start_date or end_date:
         query["date"] = {}
         if start_date:
-            query["date"]["$gte"] = start_date
+            query["date"]["$gte"] = start_date.strftime("%Y-%m-%dT%H:%M:%S")
         if end_date:
-            query["date"]["$lte"] = end_date
+            query["date"]["$lte"] = end_date.strftime("%Y-%m-%dT%H:%M:%S")
     
     cursor = collection.find(query).sort("date", -1).limit(100)
     # We convert ObjectId to str for JSON compatibility
@@ -203,7 +216,8 @@ async def get_employee_payroll_config(
     Fetches the LATEST salary settings for an employee.
     PRIORITY:
     1. Local Payroll Database (Overrides from our UI)
-    2. Legacy HR System (Default values)
+    2. Legacy HR System (Specialized PayrollConfigurations table)
+    3. Legacy HR System (Fallback: 'baseSalary' directly from Employees table)
     """
     
     # --- 1. CHECK LOCAL OVERRIDES FIRST ---
@@ -224,7 +238,7 @@ async def get_employee_payroll_config(
             except ValidationError as e:
                 print(f"WARNING: Invalid local override doc: {e}")
 
-    # --- 2. FALLBACK TO HR SYSTEM ---
+    # --- 2. TRY HR SPECIALIZED SALARY TABLE ---
     collection = hr_db[PAYROLL_CONFIG_COLLECTION]
     or_terms: list[dict] = []
 
@@ -233,23 +247,36 @@ async def get_employee_payroll_config(
         if ObjectId.is_valid(employee_id_str):
             or_terms.append({"employeeId": ObjectId(employee_id_str)})
     if employee_number:
+        # Search by both possible keys in legacy DB
         or_terms.append({"employeeNumber": employee_number})
+        or_terms.append({"employeeId": employee_number})
     if full_name:
         last_name = full_name.split(",")[0].strip().replace(" ", "")
         if len(last_name) >= 2:
             or_terms.append({"employeeName": {"$regex": f"^{last_name[:4]}", "$options": "i"}})
 
-    if not or_terms:
-        return None
+    if or_terms:
+        cursor = collection.find({"$or": or_terms}).sort("updatedAt", -1).limit(1)
+        docs = await cursor.to_list(length=1)
+        
+        if docs:
+            try:
+                return HRPayrollConfigRead(**docs[0])
+            except ValidationError as e:
+                print(f"WARNING: Invalid HR payroll config: {e}")
 
-    cursor = collection.find({"$or": or_terms}).sort("updatedAt", -1).limit(1)
-    docs = await cursor.to_list(length=1)
-    
-    if docs:
-        try:
-            return HRPayrollConfigRead(**docs[0])
-        except ValidationError as e:
-            print(f"WARNING: Invalid HR payroll config: {e}")
-            return None
+    # --- 3. FALLBACK: USE 'baseSalary' FROM EMPLOYEES TABLE ---
+    # This is critical for the new 2026 employees who don't have a Salary table record yet.
+    emp_record = await get_employee_by_id(employee_id_str)
+    if emp_record and emp_record.baseSalary > 0:
+        return HRPayrollConfigRead(
+            id=emp_record.id, # Dummy id for the schema
+            employeeId=emp_record.employeeId,
+            basicSalary=emp_record.baseSalary,
+            housingAllowance=0.0,
+            transportAllowance=0.0,
+            mealAllowance=0.0,
+            otherAllowances=0.0
+        )
 
     return None

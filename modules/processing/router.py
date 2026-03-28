@@ -34,6 +34,7 @@ class EmployeeReadiness(BaseModel):
     lastName: str
     department: str
     role: str
+    contractType: str
     is_ready: bool
     issues: List[str] = []
     missing_config: bool = False
