@@ -1,22 +1,35 @@
 import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/layout/Sidebar';
 import Dashboard from './pages/Dashboard';
+import Employees from './pages/Employees';
+import Payroll from './pages/Payroll';
+import Attendance from './pages/Attendance';
+import Leaves from './pages/Leaves';
+import Settings from './pages/Settings';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
 /**
  * Main Application Component
- * Orchestrates the overall layout: Sidebar + Main Content.
  */
 export default function App() {
   return (
-    <div className="d-flex" style={{ backgroundColor: '#F9F9F9', minHeight: '100vh' }}>
-      {/* 1. Sidebar - Fixed Navigation hub */}
-      <Sidebar />
+    <Router>
+      <div className="d-flex" style={{ backgroundColor: '#F9F9F9', minHeight: '100vh' }}>
+        <Sidebar />
 
-      {/* 2. Main Content Area - Dynamic content based on active route */}
-      <div className="flex-grow-1" style={{ marginLeft: '260px', minWidth: 0 }}>
-        <Dashboard />
+        <div className="flex-grow-1" style={{ marginLeft: '260px', minWidth: 0 }}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/employee" element={<Employees />} />
+            <Route path="/payroll" element={<Payroll />} />
+            <Route path="/attendance" element={<Attendance />} />
+            <Route path="/leaves" element={<Leaves />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </div>
       </div>
-    </div>
+    </Router>
   );
 }

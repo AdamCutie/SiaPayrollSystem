@@ -1,4 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import OperationFailure
 from .config import settings
 
 # Initialize the Motor Client for Async MongoDB operations
@@ -22,5 +23,33 @@ async def check_db_connection():
         return True
     except Exception as e:
         # Log the error if the connection fails
-        print(f"CRITICAL: Could not connect to MongoDB at {settings.MONGODB_URL}: {e}")
+        # Avoid printing credentials embedded in connection strings.
+        print(f"CRITICAL: Could not connect to MongoDB. Check your .env MONGODB_URL. Details: {e}")
         return False
+
+
+def close_db_connection() -> None:
+    """
+    Closes the underlying MongoDB client.
+    Call this during application shutdown to release sockets cleanly.
+    """
+    client.close()
+
+
+async def ensure_db_indexes() -> None:
+    """
+    Ensures critical MongoDB indexes exist for data correctness and safety.
+
+    This is safe to call multiple times (idempotent).
+    """
+    try:
+        await db["PayrollSnapshots"].create_index(
+            [("employee_id", 1), ("pay_period_start", 1), ("pay_period_end", 1)],
+            unique=True,
+            name="uniq_employee_pay_period",
+        )
+    except OperationFailure as e:
+        # Common cause: existing duplicate records prevent creating a unique index.
+        print(f"WARNING: Could not create unique index on PayrollSnapshots: {e}")
+    except Exception as e:
+        print(f"WARNING: Could not ensure MongoDB indexes: {e}")

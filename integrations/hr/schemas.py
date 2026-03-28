@@ -23,6 +23,8 @@ class HREmployeeRead(BaseModel):
     department: str
     role: str
     isActive: bool
+    contractType: str = "Provisionary" # "Regular" or "Provisionary"
+    baseSalary: Money = 0.0 # Discovered directly in Employees collection
 
 class HRPayrollConfigRead(BaseModel):
     """Schema for reading salary configurations from legacy HR DB"""
@@ -49,3 +51,21 @@ class HRPayrollConfigRead(BaseModel):
 
     absencePenaltyRate: Money = 0.0
     latePenaltyRate: Money = 0.0
+
+class HRPayrollConfigUpdate(BaseModel):
+    """Schema for updating/overriding payroll configurations."""
+    basicSalary: Optional[float] = None
+    housingAllowance: Optional[float] = None
+    transportAllowance: Optional[float] = None
+    mealAllowance: Optional[float] = None
+    otherAllowances: Optional[float] = None
+
+    pagIbigContribution: Optional[float] = None
+    withholdingTax: Optional[float] = None
+
+    sssLoan: Optional[float] = None
+    pagIbigLoan: Optional[float] = None
+    companyLoan: Optional[float] = None
+
+    absencePenaltyRate: Optional[float] = None
+    latePenaltyRate: Optional[float] = None

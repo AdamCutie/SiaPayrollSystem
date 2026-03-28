@@ -1,10 +1,16 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from core.auth import require_user
 from core.database import db
 from db.models import Holiday
 from typing import List
 from datetime import datetime
 
-router = APIRouter(prefix="/holidays", tags=["Holiday Management"])
+router = APIRouter(
+    prefix="/holidays",
+    tags=["Holiday Management"],
+    dependencies=[Depends(require_user)],
+)
 
 @router.get("/list", response_model=List[Holiday])
 async def get_holiday_list():
