@@ -5,8 +5,10 @@ import TopBar from '../components/layout/TopBar';
 import StatCard from '../components/dashboard/StatCard';
 import AttendanceTable from '../components/dashboard/AttendanceTable';
 import PayrollChart from '../components/dashboard/PayrollChart';
+import { useNavigate } from 'react-router-dom';
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   // State to hold the backend data
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -97,7 +99,7 @@ const Dashboard = () => {
           <small 
             className="text-primary fw-bold" 
             style={{ cursor: 'pointer', textDecoration: 'underline' }}
-            onClick={() => window.location.href = '/attendance'}
+            onClick={() => navigate('/attendance')}
           >
             View All
           </small>

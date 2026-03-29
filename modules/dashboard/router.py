@@ -5,14 +5,13 @@ from core.database import db, hr_db
 from integrations.hr.adapter import EMPLOYEES_COLLECTION
 from .schemas import DashboardOverview
 
-# --- Dashboard metric definitions (easy to change) ---
-# Which payroll-db collections count as "approval work items" for the admin dashboard?
-APPROVAL_SOURCES: list[str] = [
-    "AttendanceLogs",
-    "LeaveRequests",
+# Which payroll-db collections count as internal approval work items?
+INTERNAL_APPROVAL_SOURCES: list[str] = [
     "OvertimeRecords",
     "PenaltyRecords",
 ]
+
+# Note: Leaves and Attendance are fetched directly from HR System (Source of Truth)
 
 APPROVAL_STATUSES: tuple[str, ...] = ("Approved", "Pending", "Rejected")
 TOP_DEPARTMENTS_LIMIT = 5
@@ -90,12 +89,30 @@ async def get_dashboard_overview():
     approvals_pending = 0
     approvals_rejected = 0
 
-    for source in APPROVAL_SOURCES:
+    # 3a. Leaves from HR System (Source of Truth)
+    from integrations.hr.adapter import LEAVES_COLLECTION
+    hr_leave_coll = hr_db[LEAVES_COLLECTION]
+    l_total = await hr_leave_coll.count_documents({})
+    l_app = await hr_leave_coll.count_documents({"status": {"$regex": "^approved$", "$options": "i"}})
+    l_pen = await hr_leave_coll.count_documents({"status": {"$regex": "^pending$", "$options": "i"}})
+    # Fix: Count both Rejected and Declined as Rejected
+    l_rej = await hr_leave_coll.count_documents({"status": {"$regex": "^(rejected|declined)$", "$options": "i"}})
+
+    approvals_requested += l_total
+    approvals_approved += l_app
+    approvals_pending += l_pen
+    approvals_rejected += l_rej
+
+    # 3b. Overtime & Penalties from OUR System (Internal Money Items)
+    INTERNAL_SOURCES = ["OvertimeRecords", "PenaltyRecords"]
+    for source in INTERNAL_SOURCES:
         counts = await _status_counts(source)
         approvals_requested += sum(counts.values())
         approvals_approved += counts.get("Approved", 0)
         approvals_pending += counts.get("Pending", 0)
         approvals_rejected += counts.get("Rejected", 0)
+
+    # 🚀 REMOVED: Attendance Logs (HR) are no longer counted in Approval Status
 
     # 4. Return Combined Stats
     return {

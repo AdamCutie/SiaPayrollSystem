@@ -143,7 +143,14 @@ const MonthlyAttendanceSheet = () => {
                   <td>{new Date(day.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}</td>
                   <td>{getStatusBadge(day.status)}</td>
                   <td className="text-muted small">
-                    {day.status === 'Present' ? `Log: ${day.log_id.substring(0,8)}...` : (day.status === 'Holiday' ? <strong>{day.remarks}</strong> : day.remarks || '-')}
+                    {day.status === 'Holiday' ? (
+                      <div>
+                        <strong>{day.remarks}</strong>
+                        {day.log_id && <div className="mt-1">Log: {day.log_id.substring(0,8)}...</div>}
+                      </div>
+                    ) : (
+                      day.log_id ? `Log: ${day.log_id.substring(0,8)}...` : (day.remarks || '-')
+                    )}
                   </td>
                 </tr>
               ))}

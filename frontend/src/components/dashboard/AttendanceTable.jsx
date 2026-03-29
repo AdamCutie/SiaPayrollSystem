@@ -111,7 +111,12 @@ const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
     }
 
     return logs.map((log) => (
-      <tr key={log._id}>
+      <tr 
+        key={log._id}
+        onClick={() => isDashboard && navigate('/attendance')}
+        style={{ cursor: isDashboard ? 'pointer' : 'default' }}
+        className={isDashboard ? 'attendance-row-hover' : ''}
+      >
         <td className="ps-4">{log.date ? new Date(log.date).toLocaleDateString() : 'N/A'}</td>
         <td className="fw-bold">{log.employeeId}</td>
         <td>{log.employeeName || 'Employee'}</td>

@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-
 from core.auth import require_admin
 from core.database import db
+from db.models import PenaltyRecord, OvertimeRecord, Holiday, PyObjectId
 from integrations.hr.adapter import get_hr_attendance_list, get_employee_by_id, get_hr_leaves_list
-from db.models import PenaltyRecord, OvertimeRecord, Holiday
 from .schemas import MonthlyAttendanceSheet, AttendanceDayStatus
 from typing import List, Optional
 from bson import ObjectId
@@ -179,16 +178,79 @@ async def get_monthly_attendance_sheet(
         leave_count=l_count
     )
 
-@router.get("/penalties", response_model=List[PenaltyRecord])
-async def get_penalty_logs():
-    """Matches Figma: Penalize.png table"""
+@router.patch("/overtime/{record_id}/approve")
+async def approve_overtime(record_id: str, _: object = Depends(require_admin)):
+    """Approves an overtime record in OUR database so it gets paid."""
+    collection = db["OvertimeRecords"]
+    result = await collection.update_one(
+        {"_id": PyObjectId(record_id)},
+        {"$set": {"status": "Approved", "updated_at": datetime.now()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"message": "Overtime approved"}
+
+@router.patch("/overtime/{record_id}/reject")
+async def reject_overtime(record_id: str, _: object = Depends(require_admin)):
+    """Rejects an overtime record."""
+    collection = db["OvertimeRecords"]
+    result = await collection.update_one(
+        {"_id": PyObjectId(record_id)},
+        {"$set": {"status": "Rejected", "updated_at": datetime.now()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"message": "Overtime rejected"}
+
+@router.patch("/penalties/{record_id}/approve")
+async def waive_penalty(record_id: str, _: object = Depends(require_admin)):
+    """Waives a penalty (marks as Waived so it is NOT deducted)."""
     collection = db["PenaltyRecords"]
-    cursor = collection.find().sort("date", -1)
-    return [PenaltyRecord(**doc) async for doc in cursor]
+    result = await collection.update_one(
+        {"_id": PyObjectId(record_id)},
+        {"$set": {"status": "Waived", "updated_at": datetime.now()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"message": "Penalty waived"}
+
+@router.patch("/penalties/{record_id}/reject")
+async def apply_penalty(record_id: str, _: object = Depends(require_admin)):
+    """Applies a penalty (marks as Approved so it IS deducted)."""
+    collection = db["PenaltyRecords"]
+    result = await collection.update_one(
+        {"_id": PyObjectId(record_id)},
+        {"$set": {"status": "Approved", "updated_at": datetime.now()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"message": "Penalty applied"}
 
 @router.get("/overtime", response_model=List[OvertimeRecord])
 async def get_overtime_logs():
-    """Matches Figma: Overtime.png table"""
+    """Matches Figma: Overtime.png table. Enriched with names."""
     collection = db["OvertimeRecords"]
     cursor = collection.find().sort("date", -1)
-    return [OvertimeRecord(**doc) async for doc in cursor]
+    records = [OvertimeRecord(**doc) async for doc in cursor]
+    
+    # Enrich with names from HR
+    from integrations.hr.adapter import get_employee_by_id
+    for r in records:
+        emp = await get_employee_by_id(r.employee_id)
+        if emp:
+            r.full_name = f"{emp.lastName}, {emp.firstName}"
+    return records
+
+@router.get("/penalties", response_model=List[PenaltyRecord])
+async def get_penalty_logs():
+    """Enriched with names."""
+    collection = db["PenaltyRecords"]
+    cursor = collection.find().sort("date", -1)
+    records = [PenaltyRecord(**doc) async for doc in cursor]
+    
+    from integrations.hr.adapter import get_employee_by_id
+    for r in records:
+        emp = await get_employee_by_id(r.employee_id)
+        if emp:
+            r.full_name = f"{emp.lastName}, {emp.firstName}"
+    return records

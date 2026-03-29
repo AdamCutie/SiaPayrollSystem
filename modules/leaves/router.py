@@ -14,6 +14,16 @@ router = APIRouter(
 from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timedelta, timezone
 
+from db.models import LeaveRequest
+from core.database import db
+
+@router.get("/internal-logs", response_model=List[LeaveRequest])
+async def get_internal_leave_logs(_: object = Depends(require_admin)):
+    """Fetches leave records from OUR Payroll Database (matches Dashboard count)."""
+    collection = db["LeaveRequests"]
+    cursor = collection.find().sort("start_date", -1)
+    return [LeaveRequest(**doc) async for doc in cursor]
+
 @router.get("/logs")
 async def get_leave_logs(
     employee_id: Optional[str] = Query(None),

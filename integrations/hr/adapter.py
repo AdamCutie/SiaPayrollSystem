@@ -56,7 +56,7 @@ async def get_hr_approved_leaves(employee_id_str: str, start_date: datetime, end
         "employeeId": employee_id_str,
         "startDate": {"$gte": s_str},
         "endDate": {"$lte": e_str},
-        "status": "approved"
+        "status": {"$regex": "^approved$", "$options": "i"}
     })
     return count
 
@@ -88,6 +88,43 @@ async def get_hr_attendance_list(
     for doc in docs:
         doc["_id"] = str(doc["_id"])
     return docs
+
+async def get_hr_attendance_list(
+    employee_id: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None
+) -> List[dict]:
+    """
+    Fetches raw attendance logs from the HR System.
+    Enriches with Employee Name.
+    """
+    collection = hr_db[ATTENDANCE_COLLECTION]
+    query = {}
+    if employee_id:
+        query["employeeId"] = employee_id
+        
+    if start_date and end_date:
+        query["date"] = {"$gte": start_date, "$lte": end_date}
+            
+    cursor = collection.find(query).sort("date", -1).limit(1000)
+    docs = await cursor.to_list(length=1000)
+    
+    # Enrich with Name
+    enriched = []
+    emp_cache = {}
+    for doc in docs:
+        doc["_id"] = str(doc["_id"])
+        eid = doc.get("employeeId")
+        if eid not in emp_cache:
+            emp = await hr_db[EMPLOYEES_COLLECTION].find_one({"employeeId": eid})
+            if emp:
+                emp_cache[eid] = f"{emp.get('lastName')}, {emp.get('firstName')}"
+            else:
+                emp_cache[eid] = f"Unknown ({eid})"
+        
+        doc["employeeName"] = emp_cache[eid]
+        enriched.append(doc)
+    return enriched
 
 async def get_hr_leaves_list(
     employee_id: Optional[str] = None,

@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, CreditCard, Calendar, FileText, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, CreditCard, Calendar, FileText, Settings, CheckCircle } from 'lucide-react';
 
 const Sidebar = () => {
   return (
@@ -42,10 +42,10 @@ const Sidebar = () => {
           <Calendar size={20}/> Attendance
         </NavLink>
         <NavLink 
-          to="/leaves" 
+          to="/approvals" 
           className={({ isActive }) => `nav-link-sia ${isActive ? 'active' : ''}`}
         >
-          <FileText size={20}/> Leaves
+          <CheckCircle size={20}/> Approvals
         </NavLink>
         <NavLink 
           to="/settings" 

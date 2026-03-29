@@ -5,7 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Employees from './pages/Employees';
 import Payroll from './pages/Payroll';
 import Attendance from './pages/Attendance';
-import Leaves from './pages/Leaves';
+import Approvals from './pages/Approvals';
 import Settings from './pages/Settings';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
@@ -25,7 +25,7 @@ export default function App() {
             <Route path="/employee" element={<Employees />} />
             <Route path="/payroll" element={<Payroll />} />
             <Route path="/attendance" element={<Attendance />} />
-            <Route path="/leaves" element={<Leaves />} />
+            <Route path="/approvals" element={<Approvals />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </div>
