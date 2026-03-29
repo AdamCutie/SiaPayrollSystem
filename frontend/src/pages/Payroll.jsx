@@ -158,17 +158,45 @@ const Payroll = () => {
     return { sss, phil, pag, tax: Math.round(tax * 100) / 100 };
   };
 
-  const onSalaryChange = (newSalary) => {
-    const val = parseFloat(newSalary) || 0;
-    const { sss, phil, pag, tax } = calculateStatutory(val);
+  // --- Helper Functions for Formatting & Validation ---
+  const formatCurrencyInput = (value) => {
+    if (!value && value !== 0) return '';
+    // Remove non-numeric characters except decimal point
+    const cleanValue = value.toString().replace(/[^0-9.]/g, '');
+    if (!cleanValue) return '';
+    
+    const parts = cleanValue.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.length > 1 ? `${parts[0]}.${parts[1].slice(0, 2)}` : parts[0];
+  };
+
+  const parseFormattedNumber = (value) => {
+    if (!value) return 0;
+    const clean = value.toString().replace(/,/g, '');
+    const num = parseFloat(clean) || 0;
+    return Math.max(0, num); // Force non-negative
+  };
+
+  const onSalaryChange = (displayValue) => {
+    const numericValue = parseFormattedNumber(displayValue);
+    const { sss, phil, pag, tax } = calculateStatutory(numericValue);
+    
     setConfigData({
         ...configData,
-        basicSalary: val,
+        basicSalary: numericValue,
         sssContribution: sss,
         philHealthContribution: phil,
         pagIbigContribution: pag,
         withholdingTax: tax
     });
+  };
+
+  const handleGenericChange = (field, displayValue) => {
+    const numericValue = parseFormattedNumber(displayValue);
+    setConfigData(prev => ({
+      ...prev,
+      [field]: numericValue
+    }));
   };
 
   const handleViewPayslip = (record) => {
@@ -428,8 +456,8 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Basic Salary</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.basicSalary || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.basicSalary)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? 'border-primary' : 'bg-light'}
                     onChange={e => onSalaryChange(e.target.value)}
@@ -440,11 +468,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Housing</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.housingAllowance || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.housingAllowance)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, housingAllowance: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('housingAllowance', e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -452,11 +480,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Transport</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.transportAllowance || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.transportAllowance)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, transportAllowance: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('transportAllowance', e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -464,11 +492,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Meal</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.mealAllowance || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.mealAllowance)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, mealAllowance: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('mealAllowance', e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -476,11 +504,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Other</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.otherAllowances || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.otherAllowances)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, otherAllowances: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('otherAllowances', e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -495,25 +523,25 @@ const Payroll = () => {
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">SSS Contribution</Form.Label>
-                  <Form.Control type="number" value={configData.sssContribution || ''} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value={formatCurrencyInput(configData.sssContribution)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">PhilHealth</Form.Label>
-                  <Form.Control type="number" value={configData.philHealthContribution || ''} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value={formatCurrencyInput(configData.philHealthContribution)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">Pag-IBIG</Form.Label>
-                  <Form.Control type="number" value={configData.pagIbigContribution || ''} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value={formatCurrencyInput(configData.pagIbigContribution)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">Withholding Tax</Form.Label>
-                  <Form.Control type="number" value={configData.withholdingTax || ''} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value={formatCurrencyInput(configData.withholdingTax)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
             </Row>
@@ -525,11 +553,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold text-danger">SSS Loan</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.sssLoan || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.sssLoan)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, sssLoan: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('sssLoan', e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -537,11 +565,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold text-danger">Pag-IBIG Loan</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.pagIbigLoan || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.pagIbigLoan)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, pagIbigLoan: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('pagIbigLoan', e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -549,11 +577,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold text-danger">Company Loan</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.companyLoan || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.companyLoan)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, companyLoan: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('companyLoan', e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -563,11 +591,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Absence Penalty (Per Day)</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.absencePenaltyRate || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.absencePenaltyRate)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, absencePenaltyRate: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('absencePenaltyRate', e.target.value)}
                   />
                 </Form.Group>
               </Col>
@@ -575,11 +603,11 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Late Penalty (Per Hour)</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.latePenaltyRate || ''} 
+                    type="text" 
+                    value={formatCurrencyInput(configData.latePenaltyRate)} 
                     readOnly={editingEmployee?.contractType !== 'Regular'}
                     className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, latePenaltyRate: parseFloat(e.target.value)})}
+                    onChange={e => handleGenericChange('latePenaltyRate', e.target.value)}
                   />
                 </Form.Group>
               </Col>
