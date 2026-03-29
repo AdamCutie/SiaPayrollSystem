@@ -23,9 +23,9 @@ const Leaves = () => {
     fetchLeaves();
   }, []);
 
-  const getStatusBadge = (leave) => {
-    if (leave.IsApproved === true) return 'success';
-    if (leave.IsApproved === false) return 'danger';
+  const getStatusBadge = (status) => {
+    if (status === 'Approved') return 'success';
+    if (status === 'Rejected') return 'danger';
     return 'warning'; // Pending
   };
 
@@ -53,13 +53,13 @@ const Leaves = () => {
         <tbody>
           {leavesData.map((leave) => (
             <tr key={leave._id}>
-              <td className="fw-bold">{leave.FullName || 'Employee'}</td>
-              <td>{new Date(leave.StartDate).toLocaleDateString()}</td>
-              <td>{new Date(leave.EndDate).toLocaleDateString()}</td>
-              <td><Badge bg="light" className="text-dark border">{leave.LeaveType}</Badge></td>
+              <td className="fw-bold">{leave.fullName || 'Employee'}</td>
+              <td>{new Date(leave.startDate).toLocaleDateString()}</td>
+              <td>{new Date(leave.endDate).toLocaleDateString()}</td>
+              <td><Badge bg="light" className="text-dark border">{leave.leaveType}</Badge></td>
               <td>
-                <Badge bg={getStatusBadge(leave)}>
-                  {leave.IsApproved === true ? 'Approved' : leave.IsApproved === false ? 'Rejected' : 'Pending'}
+                <Badge bg={getStatusBadge(leave.status)}>
+                  {leave.status || 'Pending'}
                 </Badge>
               </td>
             </tr>
