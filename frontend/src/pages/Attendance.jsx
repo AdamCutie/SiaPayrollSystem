@@ -44,7 +44,7 @@ const Attendance = () => {
       </div>
 
       <div className="bg-white p-4 rounded-4 shadow-sm">
-        {view === 'logs' ? <AttendanceTable /> : <MonthlyAttendanceSheet />}
+        {view === 'logs' ? <AttendanceTable showFilters={true} defaultPeriod="" /> : <MonthlyAttendanceSheet />}
       </div>
     </div>
   );

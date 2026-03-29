@@ -102,7 +102,7 @@ async def get_dashboard_overview():
         "employees": {
             "total": total,
             "regular": regular,
-            "provisional": total - regular
+            "probationary": total - regular
         },
         "approvals": {
             "requested": approvals_requested,

@@ -5,7 +5,7 @@ class EmployeeStats(BaseModel):
     """Data for the 'TOTAL EMPLOYEES' card in Figma"""
     total: int
     regular: int
-    provisional: int
+    probationary: int
 
 class ApprovalStats(BaseModel):
     """Data for the 'APPROVAL STATUS' card in Figma"""

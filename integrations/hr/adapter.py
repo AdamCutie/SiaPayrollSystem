@@ -97,6 +97,7 @@ async def get_hr_leaves_list(
     """
     Fetches raw leave requests from the HR Database with optional date filtering.
     Handles both String and Object dates.
+    Enriches with Employee Name.
     """
     collection = hr_db[LEAVES_COLLECTION]
     query = {}
@@ -113,9 +114,33 @@ async def get_hr_leaves_list(
             
     cursor = collection.find(query).sort("startDate", -1).limit(100)
     docs = await cursor.to_list(length=100)
+    
+    # Enrich with FullName
+    enriched_docs = []
+    emp_cache = {} # Cache names to avoid redundant DB hits
+    
     for doc in docs:
         doc["_id"] = str(doc["_id"])
-    return docs
+        
+        # Try different ID keys used in HR DB
+        eid = doc.get("employeeId") or doc.get("employee_id") or doc.get("empId")
+        
+        if eid and eid not in emp_cache:
+            # Normalize ID: remove spaces and ensure string
+            clean_eid = str(eid).strip()
+            
+            # Search by the human employee number
+            emp = await hr_db[EMPLOYEES_COLLECTION].find_one({"employeeId": clean_eid})
+            if emp:
+                emp_cache[eid] = f"{emp.get('lastName')}, {emp.get('firstName')}"
+            else:
+                # If not found, it's likely an employee from a previous year (e.g., 2025)
+                emp_cache[eid] = f"Archived/Inactive ({eid})"
+        
+        doc["fullName"] = emp_cache.get(eid, "Unknown")
+        enriched_docs.append(doc)
+        
+    return enriched_docs
 
 async def update_payroll_config_override(
     employee_id_str: str,

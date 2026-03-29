@@ -40,8 +40,8 @@ const Dashboard = () => {
             <div className="d-flex justify-content-around text-center">
               <div><h4 className="fw-bold m-0">{stats.employees.total}</h4><small className="text-muted">Total</small></div>
               <div><h4 className="fw-bold m-0">{stats.employees.regular}</h4><small className="text-muted">Regular</small></div>
-              {/* Placeholder for data from backend */}
-              <div className="text-warning"><h4 className="fw-bold m-0">{stats.employees.provisionary || 0}</h4><small className="text-muted">Provisionary</small></div>
+              {/* Corrected typo and field mapping */}
+              <div className="text-warning"><h4 className="fw-bold m-0">{stats.employees.probationary || 0}</h4><small className="text-muted">Probationary</small></div>
             </div>
           </StatCard>
         </Col>
@@ -93,8 +93,14 @@ const Dashboard = () => {
       {/* Employee Work Log Table */}
       <div className="mt-4">
         <div className="d-flex justify-content-between align-items-center mb-3">
-          <h6 className="fw-bold m-0">Employee List</h6>
-          <small className="text-primary cursor-pointer">View All</small>
+          <h6 className="fw-bold m-0">Employee logs</h6>
+          <small 
+            className="text-primary fw-bold" 
+            style={{ cursor: 'pointer', textDecoration: 'underline' }}
+            onClick={() => window.location.href = '/attendance'}
+          >
+            View All
+          </small>
         </div>
         <AttendanceTable />
       </div>

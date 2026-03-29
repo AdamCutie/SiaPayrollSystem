@@ -1,34 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Badge, Spinner, Alert, Form, Row, Col } from 'react-bootstrap';
+import { Table, Card, Badge, Spinner, Alert, Form } from 'react-bootstrap';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 
-const AttendanceTable = () => {
+const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [period, setPeriod] = useState('today'); // Default to Today
-  const [selectedMonth, setSelectedMonth] = useState(''); // 1-12
+  const [period, setPeriod] = useState(defaultPeriod);
+  const [selectedMonth, setSelectedMonth] = useState('');
+
+  const isDashboard = location.pathname === '/' || location.pathname === '/dashboard';
 
   useEffect(() => {
     const fetchLogs = async () => {
       try {
         setLoading(true);
         let url = 'http://localhost:8000/payroll/attendance/logs';
-        
-        // Prioritize specific month, then period
         if (selectedMonth) {
           url += `?month=${selectedMonth}`;
-        } else if (period) {
+        } else {
           url += `?period=${period}`;
         }
-
+        
         const response = await axios.get(url);
         setLogs(response.data);
         setLoading(false);
       } catch (err) {
-        setError("Could not load attendance logs. The backend server may be offline.");
+        setError("Could not load attendance logs.");
         setLoading(false);
-        console.error("Error fetching logs:", err);
       }
     };
     fetchLogs();
@@ -50,9 +52,7 @@ const AttendanceTable = () => {
             style={{ 
               backgroundColor: !selectedMonth && period === btn.value ? '#D29191' : '#FFFFFF',
               color: !selectedMonth && period === btn.value ? 'white' : '#A08E8E',
-              fontWeight: '600',
-              fontSize: '13px',
-              transition: 'all 0.2s ease'
+              fontWeight: '600', fontSize: '13px'
             }}
           >
             {btn.label}
@@ -65,7 +65,7 @@ const AttendanceTable = () => {
           value={selectedMonth} 
           onChange={(e) => { setSelectedMonth(e.target.value); setPeriod(''); }}
           className="rounded-pill border-0 shadow-sm px-4"
-          style={{ fontSize: '13px', color: '#5A4343', fontWeight: '600', height: '40px' }}
+          style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
         >
           <option value="">Specific Month</option>
           {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
@@ -99,11 +99,11 @@ const AttendanceTable = () => {
     }
 
     if (logs.length === 0) {
-      const dateText = period === 'today' ? 'Today' : (period === 'yesterday' ? 'Yesterday' : 'this period');
+      const periodLabel = selectedMonth ? 'this month' : (period || 'all time');
       return (
         <tr>
           <td colSpan="6" className="text-center py-5 text-muted">
-            <div className="mb-2">No attendance logs found for <strong>{dateText}</strong>.</div>
+            <div className="mb-2">No attendance logs found for <strong>{periodLabel}</strong>.</div>
             <small>Note: System is searching based on the actual current date (March 2026).</small>
           </td>
         </tr>
@@ -132,7 +132,7 @@ const AttendanceTable = () => {
 
   return (
     <div>
-      <FilterControls />
+      {showFilters && <FilterControls />}
       <Card className="border-0 shadow-sm rounded-4 overflow-hidden">
       <Table hover responsive className="m-0 align-middle">
         <thead style={{ backgroundColor: '#FFF5F5' }}>
