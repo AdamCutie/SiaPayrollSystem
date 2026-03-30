@@ -16,7 +16,7 @@ const Approvals = () => {
     try {
       let endpoint = '';
       if (tab === 'overtime') endpoint = 'http://localhost:8000/payroll/attendance/overtime';
-      else if (tab === 'leaves') endpoint = 'http://localhost:8000/payroll/leaves/logs?period='; // Real-time HR source
+      else if (tab === 'leaves') endpoint = 'http://localhost:8000/payroll/leaves/logs?period=';
       else if (tab === 'penalties') endpoint = 'http://localhost:8000/payroll/attendance/penalties';
 
       const response = await axios.get(endpoint);
@@ -38,6 +38,7 @@ const Approvals = () => {
     if (s === 'approved' || s === 'applied' || s === 'completed') return <Badge bg="success-subtle" className="text-success border border-success px-3">Approved</Badge>;
     if (s === 'rejected' || s === 'denied' || s === 'declined') return <Badge bg="danger-subtle" className="text-danger border border-danger px-3">Rejected</Badge>;
     if (s === 'waived') return <Badge bg="info-subtle" className="text-info border border-info px-3">Waived</Badge>;
+    if (s === 'detected') return <Badge bg="secondary" className="text-dark border px-3">Detected</Badge>;
     return <Badge bg="warning-subtle" className="text-warning border border-warning px-3">Pending</Badge>;
   };
 
@@ -47,7 +48,8 @@ const Approvals = () => {
         <tr>
           <th>Date</th>
           <th>Employee</th>
-          <th>Amount</th>
+          <th>Hours</th>
+          <th>Reason</th>
           <th className="text-end">Status</th>
         </tr>
       </thead>
@@ -55,8 +57,9 @@ const Approvals = () => {
         {data.map(ot => (
           <tr key={ot.id || ot._id}>
             <td>{ot.date ? new Date(ot.date).toLocaleDateString() : 'N/A'}</td>
-            <td className="fw-bold">{ot.full_name || 'Employee'}</td>
-            <td className="text-success fw-bold">₱{(ot.total_pay || 0).toLocaleString()}</td>
+            <td className="fw-bold">{ot.fullName || 'Employee'}</td>
+            <td className="fw-bold text-primary">{ot.hours || 0} hrs</td>
+            <td className="small text-muted">{ot.reason || '-'}</td>
             <td className="text-end">{getStatusBadge(ot.status)}</td>
           </tr>
         ))}
@@ -98,8 +101,9 @@ const Approvals = () => {
         <tr>
           <th>Date</th>
           <th>Employee</th>
+          <th>Late Time</th>
           <th>Reason</th>
-          <th>Amount</th>
+          <th>Estimated Penalty</th>
           <th className="text-end">Status</th>
         </tr>
       </thead>
@@ -108,7 +112,11 @@ const Approvals = () => {
           <tr key={p.id || p._id}>
             <td>{p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
             <td className="fw-bold">{p.full_name || 'Employee'}</td>
-            <td>{p.reason || p.penalty_type || 'Penalty'}</td>
+            <td className="fw-bold text-warning">{p.late_time || '-'}</td>
+            <td>
+              <div>{p.reason || p.penalty_type || 'Penalty'}</div>
+              {p.source && <small className="text-muted">{p.source}</small>}
+            </td>
             <td className="text-danger fw-bold">-₱{(p.amount || 0).toLocaleString()}</td>
             <td className="text-end">{getStatusBadge(p.status)}</td>
           </tr>
@@ -119,7 +127,7 @@ const Approvals = () => {
 
   return (
     <div className="main-content-sia">
-      <TopBar title="Monitoring & Approvals" />
+      <TopBar title="Monitoring" />
       
       <Row className="mb-4">
         <Col md={12}>
@@ -136,7 +144,7 @@ const Approvals = () => {
               className={`rounded-pill px-4 border-0 ${activeTab === 'leaves' ? 'shadow-sm' : ''}`}
               style={{ backgroundColor: activeTab === 'leaves' ? '#D29191' : 'transparent', color: activeTab === 'leaves' ? 'white' : '#A08E8E', fontSize: '13px', fontWeight: '600' }}
             >
-              <FileText size={16} className="me-2"/> Leave Monitoring (HR)
+              <FileText size={16} className="me-2"/> Leave Monitoring
             </Button>
             <Button 
               onClick={() => setActiveTab('penalties')}

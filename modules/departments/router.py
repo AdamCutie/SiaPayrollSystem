@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.auth import require_user
-from core.database import hr_db
-from integrations.hr.adapter import EMPLOYEES_COLLECTION
+from core.database import db
 from typing import List, Dict
 
 router = APIRouter(
@@ -18,13 +17,13 @@ async def get_department_summary():
     Returns a list of departments with their respective employee counts.
     """
     try:
-        collection = hr_db[EMPLOYEES_COLLECTION]
+        collection = db["SyncedHREmployees"]
         
         # Aggregation Pipeline: Match active, group by department name, count them
         pipeline = [
-            {"$match": {"isActive": True}},
+            {"$match": {"payload.isActive": True}},
             {"$group": {
-                "_id": "$department", 
+                "_id": "$payload.department", 
                 "count": {"$sum": 1}
             }},
             {"$sort": {"count": -1}}

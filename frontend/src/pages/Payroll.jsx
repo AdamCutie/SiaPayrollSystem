@@ -149,14 +149,20 @@ const Payroll = () => {
     const statutory = sss + phil + pag;
     const taxable = Math.max(0, salary - statutory);
     let tax = 0;
-    if (taxable > 20833) {
-        if (taxable <= 33333) tax = (taxable - 20833) * 0.20;
-        else if (taxable <= 66666) tax = 2500 + (taxable - 33333) * 0.25;
-        else if (taxable <= 166666) tax = 10833.33 + (taxable - 66666) * 0.30;
+    if (taxable > 10417) {
+        if (taxable <= 16667) tax = (taxable - 10417) * 0.20;
+        else if (taxable <= 33333) tax = 1250 + (taxable - 16667) * 0.25;
+        else if (taxable <= 83333) tax = 5416.67 + (taxable - 33333) * 0.30;
     }
 
     return { sss, phil, pag, tax: Math.round(tax * 100) / 100 };
   };
+
+  const formatMoney = (value) =>
+    `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const formatDateLabel = (value) =>
+    value ? new Date(value).toLocaleDateString() : 'N/A';
 
   // --- Helper Functions for Formatting & Validation ---
   const formatCurrencyInput = (value) => {
@@ -725,7 +731,7 @@ const Payroll = () => {
                 <Row>
                   <Col xs={6}>
                     <small className="d-block text-muted" style={{ fontSize: '11px' }}>Pay Period</small>
-                    <span style={{ fontSize: '13px' }}>{new Date(selectedPayslip.pay_period_start).toLocaleDateString()} - {new Date(selectedPayslip.pay_period_end).toLocaleDateString()}</span>
+                    <span style={{ fontSize: '13px' }}>{formatDateLabel(selectedPayslip.pay_period_start)} - {formatDateLabel(selectedPayslip.pay_period_end)}</span>
                   </Col>
                   <Col xs={6} className="text-end">
                     <small className="d-block text-muted" style={{ fontSize: '11px' }}>Department</small>
@@ -738,58 +744,69 @@ const Payroll = () => {
                 <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>EARNINGS</h6>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">Basic Salary</span>
-                  <span>₱{selectedPayslip.basic_salary.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>{formatMoney(selectedPayslip.basic_salary)}</span>
                 </div>
                 
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">Overtime Pay</span>
-                  <span>₱{(selectedPayslip.total_overtime || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>{formatMoney(selectedPayslip.total_overtime)}</span>
                 </div>
 
                 {selectedPayslip.excess_days_pay > 0 && (
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                     <span className="text-muted">Excess / Rest Day Pay</span>
-                    <span>₱{selectedPayslip.excess_days_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>{formatMoney(selectedPayslip.excess_days_pay)}</span>
                   </div>
                 )}
 
                 {selectedPayslip.holiday_pay > 0 && (
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                     <span className="text-muted">Regular Holiday Premium (100%)</span>
-                    <span>₱{selectedPayslip.holiday_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>{formatMoney(selectedPayslip.holiday_pay)}</span>
                   </div>
                 )}
 
                 {selectedPayslip.special_day_pay > 0 && (
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                     <span className="text-muted">Special Day Premium (30%)</span>
-                    <span>₱{selectedPayslip.special_day_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>{formatMoney(selectedPayslip.special_day_pay)}</span>
+                  </div>
+                )}
+
+                {selectedPayslip.worked_holiday_items?.length > 0 && (
+                  <div className="mt-2 pt-2 border-top-dashed">
+                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Worked Holidays</small>
+                    {selectedPayslip.worked_holiday_items.map((item, idx) => (
+                      <div key={`${item.date}-${idx}`} className="mb-1" style={{ fontSize: '12px' }}>
+                        <span className="ps-2">{formatDateLabel(item.date)} | {item.name} ({item.type})</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
                 <div className="mt-2 pt-2 border-top-dashed">
                   <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Allowances</small>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Housing</span>
-                    <span>₱{(selectedPayslip.housing_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Housing</span>
+                    <span>{formatMoney(selectedPayslip.housing_allowance)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Transport</span>
-                    <span>₱{(selectedPayslip.transport_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Transport</span>
+                    <span>{formatMoney(selectedPayslip.transport_allowance)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Meal</span>
-                    <span>₱{(selectedPayslip.meal_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Meal</span>
+                    <span>{formatMoney(selectedPayslip.meal_allowance)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Other</span>
-                    <span>₱{(selectedPayslip.other_allowances || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Other</span>
+                    <span>{formatMoney(selectedPayslip.other_allowances)}</span>
                   </div>
                 </div>
 
                 <div className="d-flex justify-content-between mt-2 pt-2 border-top text-success fw-bold">
                   <span>Gross Pay</span>
-                  <span>₱{selectedPayslip.gross_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>{formatMoney(selectedPayslip.gross_pay)}</span>
                 </div>
               </div>
 
@@ -797,41 +814,59 @@ const Payroll = () => {
                 <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>DEDUCTIONS</h6>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">SSS Contribution</span>
-                  <span>-₱{selectedPayslip.sss_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>-{formatMoney(selectedPayslip.sss_deduction)}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">PhilHealth</span>
-                  <span>-₱{selectedPayslip.philhealth_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>-{formatMoney(selectedPayslip.philhealth_deduction)}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">Pag-IBIG</span>
-                  <span>-₱{selectedPayslip.pagibig_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>-{formatMoney(selectedPayslip.pagibig_deduction)}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">Withholding Tax</span>
-                  <span>-₱{selectedPayslip.withholding_tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>-{formatMoney(selectedPayslip.withholding_tax)}</span>
                 </div>
                 
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted text-danger">Absence Deduction</span>
-                  <span className="text-danger">-₱{selectedPayslip.absence_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span className="text-danger">-{formatMoney(selectedPayslip.absence_deduction)}</span>
                 </div>
                 
                 <div className="mt-2 pt-2 border-top-dashed">
                   <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Loans & Penalties</small>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Total Loans</span>
-                    <span>-₱{(selectedPayslip.total_loans || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Total Loans</span>
+                    <span>-{formatMoney(selectedPayslip.total_loans)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Penalties</span>
-                    <span>-₱{(selectedPayslip.total_penalties || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Late Penalties</span>
+                    <span>-{formatMoney(selectedPayslip.total_penalties)}</span>
                   </div>
                 </div>
 
+                {selectedPayslip.total_late_hours > 0 && (
+                  <div className="mt-2 pt-2 border-top-dashed">
+                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>
+                      Late Details ({selectedPayslip.total_late_hours.toFixed(2)}h total)
+                    </small>
+                    {selectedPayslip.late_penalty_items?.map((item, idx) => (
+                      <div key={`${item.date}-${idx}`} className="mb-1" style={{ fontSize: '12px' }}>
+                        <span className="ps-2">{formatDateLabel(item.date)} | {item.late_time} ({Number(item.late_hours || 0).toFixed(2)}h)</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="d-flex justify-content-between mt-2 pt-2 border-top text-danger fw-bold">
-                  <span>Total Deductions</span>
-                  <span>-₱{selectedPayslip.total_deductions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>Deductions Subtotal</span>
+                  <span>-{formatMoney(selectedPayslip.total_deductions)}</span>
+                </div>
+
+                <div className="d-flex justify-content-between mt-2 pt-2 border-top text-danger fw-bold">
+                  <span>Total Deductions & Penalties</span>
+                  <span>-{formatMoney((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0))}</span>
                 </div>
               </div>
 
@@ -861,9 +896,20 @@ const Payroll = () => {
 
               <div className="p-3 rounded-3 mt-4 text-white d-flex justify-content-between align-items-center" style={{ backgroundColor: '#5A4343' }}>
                 <span className="fw-bold">NET TAKE HOME PAY</span>
-                <h4 className="mb-0 fw-bold">₱{selectedPayslip.net_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h4>
+                <h4 className="mb-0 fw-bold">{formatMoney(selectedPayslip.net_pay)}</h4>
               </div>
               
+              {selectedPayslip.zero_net_reason && (
+                <Alert variant="warning" className="mt-3 mb-0">
+                  {selectedPayslip.zero_net_reason}
+                  {((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0)) > (selectedPayslip.gross_pay || 0) && (
+                    <div className="mt-2">
+                      Shortfall: {formatMoney(((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0)) - (selectedPayslip.gross_pay || 0))}
+                    </div>
+                  )}
+                </Alert>
+              )}
+
               <div className="mt-4 text-center">
                 <small className="text-muted" style={{ fontSize: '10px' }}>
                   This is a computer-generated document. No signature is required.

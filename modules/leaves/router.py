@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from core.auth import CurrentUser, get_current_user, require_admin, require_user
-from integrations.hr.adapter import get_hr_leaves_list
-from typing import List, Optional
-from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from core.auth import require_admin, require_user
+from integrations.hr.adapter import get_synced_employee_by_id, get_synced_leave_list
+
 
 router = APIRouter(
     prefix="/leaves",
@@ -11,36 +13,28 @@ router = APIRouter(
     dependencies=[Depends(require_user)],
 )
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from datetime import datetime, timedelta, timezone
 
-from db.models import LeaveRequest
-from core.database import db
-
-@router.get("/internal-logs", response_model=List[LeaveRequest])
+@router.get("/internal-logs")
 async def get_internal_leave_logs(_: object = Depends(require_admin)):
-    """Fetches leave records from OUR Payroll Database (matches Dashboard count)."""
-    collection = db["LeaveRequests"]
-    cursor = collection.find().sort("start_date", -1)
-    return [LeaveRequest(**doc) async for doc in cursor]
+    """Returns synced leave records for internal payroll review."""
+    return await get_synced_leave_list()
+
 
 @router.get("/logs")
 async def get_leave_logs(
     employee_id: Optional[str] = Query(None),
-    period: Optional[str] = Query(None), # today, yesterday, lastweek
-    month: Optional[int] = Query(None), # 1-12
-    _: object = Depends(require_admin)
+    period: Optional[str] = Query(None),
+    month: Optional[int] = Query(None),
+    _: object = Depends(require_admin),
 ):
     """
-    Fetches real-time leave records from the Legacy HR System (Source of Truth).
-    Returns raw data for UI viewing.
+    Fetches leave records from the synced HR mirror in our payroll database.
     """
     try:
         start_date = None
         end_date = None
-        
         now = datetime.now()
-        
+
         if month:
             start_date = datetime(now.year, month, 1, 0, 0, 0)
             if month == 12:
@@ -59,9 +53,15 @@ async def get_leave_logs(
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        return await get_hr_leaves_list(employee_id, start_date, end_date)
+        employee_number = None
+        if employee_id:
+            employee = await get_synced_employee_by_id(employee_id)
+            employee_number = employee.employeeId if employee else employee_id
+
+        return await get_synced_leave_list(employee_number, start_date, end_date)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching HR leave logs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching synced leave logs: {str(e)}")
+
 
 @router.get("/stats")
 async def get_leave_stats(_: object = Depends(require_admin)):
@@ -69,27 +69,26 @@ async def get_leave_stats(_: object = Depends(require_admin)):
     Provides statistics for the 'Approve Status' and 'Leave Summary' cards.
     """
     try:
-        coll = db["LeaveRequests"]
         now = datetime.now(timezone.utc)
         year_start = datetime(now.year, 1, 1, tzinfo=timezone.utc)
-
-        # Annual leave usage summary (easy to change later):
-        # - "total_leave"  = total APPROVED leave days YTD
-        # - "paid_leave"   = total APPROVED paid leave days YTD
-        # - "unpaid_leave" = total APPROVED unpaid leave days YTD
-        approved_leaves = await coll.find(
-            {"status": "Approved", "end_date": {"$gte": year_start}}
-        ).to_list(None)
+        all_leaves = await get_synced_leave_list()
+        approved_leaves = [
+            leave
+            for leave in all_leaves
+            if str(leave.get("status", "")).casefold() == "approved"
+        ]
 
         total_leave_days = 0
         paid_leave_days = 0
         unpaid_leave_days = 0
 
         for doc in approved_leaves:
-            start_dt: datetime = doc.get("start_date")
-            end_dt: datetime = doc.get("end_date")
-            if not start_dt or not end_dt:
+            start_raw = doc.get("startDate")
+            end_raw = doc.get("endDate")
+            if not start_raw or not end_raw:
                 continue
+            start_dt = start_raw if isinstance(start_raw, datetime) else datetime.fromisoformat(str(start_raw).replace("Z", "+00:00"))
+            end_dt = end_raw if isinstance(end_raw, datetime) else datetime.fromisoformat(str(end_raw).replace("Z", "+00:00"))
 
             start_day = max(start_dt.date(), year_start.date())
             end_day = end_dt.date()
@@ -106,10 +105,10 @@ async def get_leave_stats(_: object = Depends(require_admin)):
                 unpaid_leave_days += days
 
         return {
-            "requested": await coll.count_documents({}),
-            "approved": await coll.count_documents({"status": "Approved"}),
-            "pending": await coll.count_documents({"status": "Pending"}),
-            "rejected": await coll.count_documents({"status": "Rejected"}),
+            "requested": len(all_leaves),
+            "approved": len([leave for leave in all_leaves if str(leave.get("status", "")).casefold() == "approved"]),
+            "pending": len([leave for leave in all_leaves if str(leave.get("status", "")).casefold() == "pending"]),
+            "rejected": len([leave for leave in all_leaves if str(leave.get("status", "")).casefold() in {"rejected", "declined"}]),
             "total_leave": total_leave_days,
             "paid_leave": paid_leave_days,
             "unpaid_leave": unpaid_leave_days,

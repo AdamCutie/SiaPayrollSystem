@@ -15,7 +15,7 @@ const Leaves = () => {
         setLeavesData(response.data);
         setLoading(false);
       } catch (err) {
-        setError('Failed to fetch leave applications from HR. Please ensure the backend server is running.');
+        setError('Failed to fetch synced leave applications. Please ensure the backend server is running.');
         setLoading(false);
         console.error("Error fetching leaves:", err);
       }
@@ -37,7 +37,7 @@ const Leaves = () => {
       return <Alert variant="danger">{error}</Alert>;
     }
     if (leavesData.length === 0) {
-        return <div className="text-center p-5 text-muted">No leave applications found in HR System.</div>;
+        return <div className="text-center p-5 text-muted">No leave applications found in synced payroll data.</div>;
     }
     return (
       <Table responsive hover className="align-middle">
@@ -72,8 +72,8 @@ const Leaves = () => {
   return (
     <div className="main-content-sia">
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h2 className="fw-bold m-0">Leave History (HR)</h2>
-        <small className="text-muted">Read-only from HR System</small>
+        <h2 className="fw-bold m-0">Leave History</h2>
+        <small className="text-muted">Read-only from synced payroll mirror</small>
       </div>
       <div className="bg-white p-4 rounded-4 shadow-sm">
         {renderContent()}

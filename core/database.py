@@ -48,6 +48,24 @@ async def ensure_db_indexes() -> None:
             unique=True,
             name="uniq_employee_pay_period",
         )
+        for collection_name in (
+            "SyncedHREmployees",
+            "SyncedHRPayrollConfigurations",
+            "SyncedHRAttendance",
+            "SyncedHRLeaves",
+            "SyncedHROvertimeRequests",
+        ):
+            await db[collection_name].create_index(
+                [("source_id", 1)],
+                unique=True,
+                name="uniq_source_id",
+            )
+
+        await db["HRSyncState"].create_index(
+            [("scope", 1)],
+            unique=True,
+            name="uniq_scope",
+        )
     except OperationFailure as e:
         # Common cause: existing duplicate records prevent creating a unique index.
         print(f"WARNING: Could not create unique index on PayrollSnapshots: {e}")

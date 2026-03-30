@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.auth import CurrentUser, get_current_user, require_admin, require_user
 from core.database import db
 from integrations.hr.adapter import (
-    get_all_active_employees,
-    get_employee_by_id,
-    get_employee_payroll_config,
+    get_synced_active_employees,
+    get_synced_employee_by_id,
+    get_synced_employee_payroll_config,
     update_payroll_config_override,
 )
 from integrations.hr.schemas import HREmployeeRead, HRPayrollConfigRead, HRPayrollConfigUpdate
@@ -24,7 +24,7 @@ async def get_employee_list(_: object = Depends(require_admin)):
     Fetches the list of all active employees for the management table.
     """
     try:
-        return await get_all_active_employees(limit=100)
+        return await get_synced_active_employees(limit=100)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch employees: {str(e)}")
 
@@ -37,12 +37,12 @@ async def get_payroll_configuration(employee_id: str, _: object = Depends(requir
     try:
         from modules.agencies.service import AgencyCalculator
         
-        employee = await get_employee_by_id(employee_id)
+        employee = await get_synced_employee_by_id(employee_id)
         if not employee:
             raise HTTPException(status_code=404, detail="Employee not found")
         
         full_name = f"{employee.lastName}, {employee.firstName}"
-        config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
+        config = await get_synced_employee_payroll_config(employee.id, employee.employeeId, full_name)
         
         if config:
             # If the database has 0.0, we show the calculated legal values in the UI
@@ -90,7 +90,7 @@ async def get_employee_profile(employee_id: str, user: CurrentUser = Depends(get
     """
     try:
         # 1) Identity from HR (supports either MongoDB _id or employee number)
-        hr_employee = await get_employee_by_id(employee_id)
+        hr_employee = await get_synced_employee_by_id(employee_id)
         if not hr_employee:
             raise HTTPException(status_code=404, detail="Employee profile not found.")
 
@@ -101,7 +101,7 @@ async def get_employee_profile(employee_id: str, user: CurrentUser = Depends(get
         full_name = f"{hr_employee.lastName}, {hr_employee.firstName}"
 
         # 2) Latest payroll configuration from HR (salary settings)
-        payroll_config: HRPayrollConfigRead | None = await get_employee_payroll_config(
+        payroll_config: HRPayrollConfigRead | None = await get_synced_employee_payroll_config(
             hr_employee.id,
             hr_employee.employeeId,
             full_name,

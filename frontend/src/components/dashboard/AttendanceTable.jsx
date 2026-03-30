@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Badge, Spinner, Alert, Form } from 'react-bootstrap';
+import { Table, Card, Spinner, Alert, Form } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 
@@ -80,7 +80,7 @@ const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
     if (loading) {
       return (
         <tr>
-          <td colSpan="6" className="text-center py-5">
+          <td colSpan="5" className="text-center py-5">
             <Spinner animation="border" size="sm" />
             <span className="ms-2">Loading logs...</span>
           </td>
@@ -91,7 +91,7 @@ const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
     if (error) {
       return (
         <tr>
-          <td colSpan="6">
+          <td colSpan="5">
             <Alert variant="danger" className="m-3 text-center">{error}</Alert>
           </td>
         </tr>
@@ -102,7 +102,7 @@ const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
       const periodLabel = selectedMonth ? 'this month' : (period || 'all time');
       return (
         <tr>
-          <td colSpan="6" className="text-center py-5 text-muted">
+          <td colSpan="5" className="text-center py-5 text-muted">
             <div className="mb-2">No attendance logs found for <strong>{periodLabel}</strong>.</div>
             <small>Note: System is searching based on the actual current date (March 2026).</small>
           </td>
@@ -121,16 +121,7 @@ const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
         <td className="fw-bold">{log.employeeId}</td>
         <td>{log.employeeName || 'Employee'}</td>
         <td>{log.department || 'N/A'}</td>
-        <td>Completed</td>
-        <td className="pe-4">
-          <Badge 
-            bg="success" 
-            className="px-3 py-2 bg-success-subtle text-success border border-success"
-            style={{ fontWeight: '500' }}
-          >
-            Approved
-          </Badge>
-        </td>
+        <td>Logged</td>
       </tr>
     ));
   };
@@ -146,8 +137,7 @@ const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
             <th>Employee No.</th>
             <th>Name</th>
             <th>Department</th>
-            <th>Duration</th>
-            <th className="pe-4">Action</th>
+            <th className="pe-4">Entry</th>
           </tr>
         </thead>
         <tbody style={{ fontSize: '14px' }}>

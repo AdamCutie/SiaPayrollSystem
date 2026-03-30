@@ -1,13 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from core.auth import require_admin
 from core.database import db
-from db.models import PenaltyRecord, OvertimeRecord, Holiday, PyObjectId
-from integrations.hr.adapter import get_hr_attendance_list, get_employee_by_id, get_hr_leaves_list
+from db.models import Holiday
+from integrations.hr.adapter import (
+    get_synced_active_employees,
+    get_synced_employee_by_id,
+    get_synced_employee_payroll_config,
+    get_synced_attendance_list,
+    get_synced_leave_list,
+    get_synced_overtime_requests,
+)
 from .schemas import MonthlyAttendanceSheet, AttendanceDayStatus
 from typing import List, Optional
-from bson import ObjectId
 from datetime import datetime, timedelta, date
 import calendar
+import math
 
 router = APIRouter(
     prefix="/attendance",
@@ -22,8 +29,7 @@ async def get_all_work_logs(
     month: Optional[int] = Query(None) # 1-12
 ):
     """
-    Fetches real-time work logs from the Legacy HR System (Source of Truth).
-    Uses the real system clock for time-based filtering.
+    Fetches attendance logs from the synced HR mirror in our payroll database.
     """
     try:
         start_date = None
@@ -50,13 +56,16 @@ async def get_all_work_logs(
             
         emp_number = None
         if employee_id:
-            emp = await get_employee_by_id(employee_id)
-            if emp:
-                emp_number = emp.employeeId
+            emp = await get_synced_employee_by_id(employee_id)
+            emp_number = emp.employeeId if emp else employee_id
 
-        return await get_hr_attendance_list(emp_number, start_date, end_date)
+        if not (start_date and end_date):
+            end_date = now_ref
+            start_date = end_date - timedelta(days=30)
+
+        return await get_synced_attendance_list(emp_number, start_date, end_date)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch HR work logs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch synced attendance logs: {str(e)}")
 
 @router.get("/sheet/{employee_id}", response_model=MonthlyAttendanceSheet)
 async def get_monthly_attendance_sheet(
@@ -69,7 +78,7 @@ async def get_monthly_attendance_sheet(
     This merges logs, leaves, and holidays to show the full status of every day.
     """
     # 1. Verify employee exists
-    emp = await get_employee_by_id(employee_id)
+    emp = await get_synced_employee_by_id(employee_id)
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
 
@@ -80,8 +89,8 @@ async def get_monthly_attendance_sheet(
 
     # 3. Fetch all relevant data for the month
     # Pass emp.employeeId (the human number like 26-2214) to the adapter
-    logs = await get_hr_attendance_list(emp.employeeId, start_dt, end_dt)
-    leaves = await get_hr_leaves_list(emp.employeeId, start_dt, end_dt)
+    logs = await get_synced_attendance_list(emp.employeeId, start_dt, end_dt)
+    leaves = await get_synced_leave_list(emp.employeeId, start_dt, end_dt, approved_only=True)
     
     # 🛡️ FIX: Ensure we fetch ALL holidays for the selected month by using date-only comparison logic
     holidays_coll = db["Holidays"]
@@ -150,11 +159,11 @@ async def get_monthly_attendance_sheet(
         # 🚀 PRIORITY 3: LEAVES
         elif curr_date in leave_dates:
             status = "On Leave"
-            remarks = leave_dates[curr_date].get("leave_type", "Leave")
+            remarks = leave_dates[curr_date].get("leave_type") or leave_dates[curr_date].get("leaveType", "Leave")
             l_count += 1
             
         # 🚀 PRIORITY 4: WEEKENDS
-        elif curr_date.weekday() >= 5: # Saturday/Sunday
+        elif curr_date.weekday() == 6: # Sunday
             status = "Weekend"
         else:
             a_count += 1
@@ -178,79 +187,215 @@ async def get_monthly_attendance_sheet(
         leave_count=l_count
     )
 
-@router.patch("/overtime/{record_id}/approve")
-async def approve_overtime(record_id: str, _: object = Depends(require_admin)):
-    """Approves an overtime record in OUR database so it gets paid."""
-    collection = db["OvertimeRecords"]
-    result = await collection.update_one(
-        {"_id": PyObjectId(record_id)},
-        {"$set": {"status": "Approved", "updated_at": datetime.now()}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Record not found")
-    return {"message": "Overtime approved"}
+def parse_ot_hours(time_str: str) -> float:
+    """Converts 'HH:MM:SS' or 'H:MM:SS' to decimal hours."""
+    try:
+        if not time_str: return 0.0
+        parts = time_str.split(':')
+        h = int(parts[0])
+        m = int(parts[1])
+        s = int(parts[2])
+        return round(h + (m / 60.0) + (s / 3600.0), 2)
+    except:
+        return 0.0
 
-@router.patch("/overtime/{record_id}/reject")
-async def reject_overtime(record_id: str, _: object = Depends(require_admin)):
-    """Rejects an overtime record."""
-    collection = db["OvertimeRecords"]
-    result = await collection.update_one(
-        {"_id": PyObjectId(record_id)},
-        {"$set": {"status": "Rejected", "updated_at": datetime.now()}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Record not found")
-    return {"message": "Overtime rejected"}
 
-@router.patch("/penalties/{record_id}/approve")
-async def waive_penalty(record_id: str, _: object = Depends(require_admin)):
-    """Waives a penalty (marks as Waived so it is NOT deducted)."""
-    collection = db["PenaltyRecords"]
-    result = await collection.update_one(
-        {"_id": PyObjectId(record_id)},
-        {"$set": {"status": "Waived", "updated_at": datetime.now()}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Record not found")
-    return {"message": "Penalty waived"}
+def parse_late_duration_to_hours(value, field_name: str = "") -> float:
+    """Normalizes late-time values from HR attendance rows to decimal hours."""
+    if value in (None, "", 0, 0.0, "0", "00:00", "00:00:00"):
+        return 0.0
 
-@router.patch("/penalties/{record_id}/reject")
-async def apply_penalty(record_id: str, _: object = Depends(require_admin)):
-    """Applies a penalty (marks as Approved so it IS deducted)."""
-    collection = db["PenaltyRecords"]
-    result = await collection.update_one(
-        {"_id": PyObjectId(record_id)},
-        {"$set": {"status": "Approved", "updated_at": datetime.now()}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Record not found")
-    return {"message": "Penalty applied"}
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if not math.isfinite(numeric) or numeric <= 0:
+            return 0.0
+        if "minute" in field_name.casefold():
+            return round(numeric / 60.0, 2)
+        return round(numeric, 2)
 
-@router.get("/overtime", response_model=List[OvertimeRecord])
-async def get_overtime_logs():
-    """Matches Figma: Overtime.png table. Enriched with names."""
-    collection = db["OvertimeRecords"]
-    cursor = collection.find().sort("date", -1)
-    records = [OvertimeRecord(**doc) async for doc in cursor]
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return 0.0
+
+        if ":" in raw:
+            parts = raw.split(":")
+            try:
+                h = int(parts[0])
+                m = int(parts[1]) if len(parts) > 1 else 0
+                s = int(parts[2]) if len(parts) > 2 else 0
+                total_seconds = (h * 3600) + (m * 60) + s
+                return round(total_seconds / 3600.0, 2)
+            except ValueError:
+                return 0.0
+
+        try:
+            numeric = float(raw)
+        except ValueError:
+            return 0.0
+
+        if numeric <= 0:
+            return 0.0
+        if "minute" in field_name.casefold():
+            return round(numeric / 60.0, 2)
+        return round(numeric, 2)
+
+    return 0.0
+
+
+def extract_late_info(doc: dict) -> Optional[dict]:
+    """Finds a positive lateness value on an HR attendance record."""
+    for field_name in ("lateTime", "lateHours", "lateMinutes", "late", "tardiness"):
+        if field_name not in doc:
+            continue
+
+        raw_value = doc.get(field_name)
+        late_hours = parse_late_duration_to_hours(raw_value, field_name)
+        if late_hours > 0:
+            return {
+                "field_name": field_name,
+                "raw_value": raw_value,
+                "late_hours": late_hours,
+            }
+
+    return None
+
+@router.get("/overtime")
+async def get_overtime_requests(
+    employee_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None)
+):
+    """
+    Fetches overtime requests from the synced HR mirror and maps them for the UI.
+    """
+    emp_number = None
+    if employee_id:
+        emp = await get_synced_employee_by_id(employee_id)
+        emp_number = emp.employeeId if emp else employee_id
+
+    hr_requests = await get_synced_overtime_requests(employee_number=emp_number)
     
-    # Enrich with names from HR
-    from integrations.hr.adapter import get_employee_by_id
-    for r in records:
-        emp = await get_employee_by_id(r.employee_id)
-        if emp:
-            r.full_name = f"{emp.lastName}, {emp.firstName}"
-    return records
+    enriched = []
+    for req in hr_requests:
+        # Check status filter
+        if status and req.get("status") != status:
+            continue
+            
+        # Map fields for UI
+        req["hours"] = parse_ot_hours(req.get("overtimeWorked", "0:0:0"))
+        req["full_name"] = req.get("fullName") # Created by the adapter
+        
+        # Calculate estimated pay for the UI
+        try:
+            employees = await get_synced_active_employees()
+            emp = next((e for e in employees if e.employeeId == req.get("employeeId")), None)
+            
+            if emp:
+                config = await get_synced_employee_payroll_config(
+                    emp.id,
+                    emp.employeeId,
+                    f"{emp.lastName}, {emp.firstName}",
+                )
+                if config:
+                    hourly_rate = (config.basicSalary / 26.0) / 8.0
+                    req["rate_per_hour"] = round(hourly_rate * 1.25, 2)
+                    req["total_pay"] = round(req["hours"] * req["rate_per_hour"], 2)
+        except:
+            pass
+            
+        enriched.append(req)
+        
+    return enriched
 
-@router.get("/penalties", response_model=List[PenaltyRecord])
-async def get_penalty_logs():
-    """Enriched with names."""
-    collection = db["PenaltyRecords"]
-    cursor = collection.find().sort("date", -1)
-    records = [PenaltyRecord(**doc) async for doc in cursor]
-    
-    from integrations.hr.adapter import get_employee_by_id
-    for r in records:
-        emp = await get_employee_by_id(r.employee_id)
-        if emp:
-            r.full_name = f"{emp.lastName}, {emp.firstName}"
-    return records
+@router.get("/penalties")
+async def get_penalty_logs(
+    employee_id: Optional[str] = Query(None),
+    period: Optional[str] = Query(None),
+    month: Optional[int] = Query(None),
+):
+    """
+    Derives penalty candidates from synced attendance rows that contain lateness data.
+    """
+    try:
+        start_date = None
+        end_date = None
+        now_ref = datetime.now()
+
+        if month:
+            start_date = datetime(now_ref.year, month, 1, 0, 0, 0)
+            if month == 12:
+                end_date = datetime(now_ref.year, 12, 31, 23, 59, 59)
+            else:
+                end_date = datetime(now_ref.year, month + 1, 1) - timedelta(seconds=1)
+        elif period == "today":
+            start_date = now_ref.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now_ref.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif period == "yesterday":
+            yesterday = now_ref - timedelta(days=1)
+            start_date = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif period == "lastweek":
+            start_date = now_ref - timedelta(days=7)
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now_ref.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        emp_number = None
+        if employee_id:
+            emp = await get_synced_employee_by_id(employee_id)
+            emp_number = emp.employeeId if emp else employee_id
+
+        if not (start_date and end_date):
+            end_date = now_ref
+            start_date = end_date - timedelta(days=30)
+
+        logs = await get_synced_attendance_list(emp_number, start_date, end_date)
+        employees = await get_synced_active_employees()
+        employee_by_number = {str(emp.employeeId).strip(): emp for emp in employees}
+        config_cache: dict[str, object] = {}
+        records = []
+
+        for log in logs:
+            late_info = extract_late_info(log)
+            if not late_info:
+                continue
+
+            employee_number = str(log.get("employeeId", "")).strip()
+            hr_employee = employee_by_number.get(employee_number)
+            full_name = log.get("employeeName") or f"Unknown ({employee_number})"
+            employee_hr_id = employee_number
+            late_rate = 0.0
+
+            if hr_employee:
+                employee_hr_id = hr_employee.id
+                full_name = f"{hr_employee.lastName}, {hr_employee.firstName}"
+
+                if hr_employee.id not in config_cache:
+                    config_cache[hr_employee.id] = await get_synced_employee_payroll_config(
+                        hr_employee.id,
+                        hr_employee.employeeId,
+                        full_name,
+                    )
+
+                config = config_cache[hr_employee.id]
+                if config:
+                    late_rate = float(getattr(config, "latePenaltyRate", 0) or 0)
+
+            records.append({
+                "_id": str(log.get("_id")),
+                "employee_id": employee_hr_id,
+                "employee_number": employee_number,
+                "full_name": full_name,
+                "date": log.get("date"),
+                "penalty_type": "Late",
+                "reason": f"Automatic payroll deduction from HR lateness ({late_info['field_name']})",
+                "late_time": str(late_info["raw_value"]),
+                "late_hours": late_info["late_hours"],
+                "rate_per_hour": round(late_rate, 2),
+                "amount": round(late_info["late_hours"] * late_rate, 2),
+                "status": "Detected",
+                "source": "HR Attendance / Auto Deducted in Payroll",
+            })
+
+        return records
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to derive penalties from synced attendance: {str(e)}")

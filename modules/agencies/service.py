@@ -21,26 +21,21 @@ class AgencyCalculator:
     @staticmethod
     def calculate_withholding_tax(taxable_income: float) -> float:
         """
-        BIR TRAIN Law Graduated Brackets (Monthly).
-        Calculated AFTER SSS, PhilHealth, and Pag-IBIG are deducted.
+        BIR TRAIN Law graduated brackets for semi-monthly payroll.
+        Calculated after SSS, PhilHealth, and Pag-IBIG are deducted.
         """
-        if taxable_income <= 20833:
+        if taxable_income <= 10417:
             return 0.0
+        elif taxable_income <= 16667:
+            return round((taxable_income - 10417) * 0.20, 2)
         elif taxable_income <= 33333:
-            # 20% of excess over 20,833
-            return round((taxable_income - 20833) * 0.20, 2)
-        elif taxable_income <= 66666:
-            # 2,500 + 25% of excess over 33,333
-            return round(2500 + (taxable_income - 33333) * 0.25, 2)
-        elif taxable_income <= 166666:
-            # 10,833.33 + 30% of excess over 66,666
-            return round(10833.33 + (taxable_income - 66666) * 0.30, 2)
-        elif taxable_income <= 666666:
-            # 40,833.33 + 32% of excess over 166,666
-            return round(40833.33 + (taxable_income - 166666) * 0.32, 2)
+            return round(1250 + (taxable_income - 16667) * 0.25, 2)
+        elif taxable_income <= 83333:
+            return round(5416.67 + (taxable_income - 33333) * 0.30, 2)
+        elif taxable_income <= 333333:
+            return round(20416.67 + (taxable_income - 83333) * 0.32, 2)
         else:
-            # 200,833.33 + 35% of excess over 666,666
-            return round(200833.33 + (taxable_income - 666666) * 0.35, 2)
+            return round(100416.67 + (taxable_income - 333333) * 0.35, 2)
 
     @staticmethod
     def calculate_sss(salary: float) -> float:

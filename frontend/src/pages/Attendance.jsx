@@ -10,7 +10,7 @@ const Attendance = () => {
   return (
     <div className="main-content-sia">
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h2 className="fw-bold m-0">Attendance Management</h2>
+        <h2 className="fw-bold m-0">Attendance Monitoring</h2>
         
         {/* Toggle Switch */}
         <div className="bg-white p-1 rounded-pill shadow-sm d-flex gap-1">
