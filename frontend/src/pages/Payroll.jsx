@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Form, Button, Table, Badge, Spinner, Alert, Modal } from 'react-bootstrap';
 import axios from 'axios';
-import { Search, ChevronDown, Check, Download, Calendar, ArrowRight, Settings, Users, FileText, Edit, Eye } from 'lucide-react';
+import { Search, Check, Download, Settings, Users, FileText, Eye } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Payroll = () => {
@@ -21,7 +21,6 @@ const Payroll = () => {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configData, setConfigData] = useState({});
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   // Payslips State
   const [payrollHistory, setPayrollHistory] = useState([]);
@@ -117,47 +116,6 @@ const Payroll = () => {
     }
   };
 
-  const handleSaveConfig = async () => {
-    setIsSavingConfig(true);
-    try {
-      await axios.post(`http://localhost:8000/payroll/employees/${editingEmployee.id}/payroll-config`, configData);
-      setShowConfigModal(false);
-      setIsSavingConfig(false);
-      alert("Changes saved to Payroll Overrides successfully!");
-      fetchEmployees(); // Refresh list to see new values
-    } catch (err) {
-      console.error("Failed to save config", err);
-      setIsSavingConfig(false);
-      alert("Error saving payroll manipulation.");
-    }
-  };
-
-  // --- Real-time Statutory Calculations ---
-  const calculateStatutory = (salary) => {
-    if (!salary || salary <= 0) return { sss: 0, phil: 0, pag: 0, tax: 0 };
-    
-    let sss = 2250;
-    if (salary <= 10000) sss = 450;
-    else if (salary <= 20000) sss = 900;
-    else if (salary <= 30000) sss = 1350;
-    else if (salary <= 40000) sss = 1800;
-
-    const philBasis = Math.max(10000, Math.min(salary, 100000));
-    const phil = Math.round(philBasis * 0.025 * 100) / 100;
-    const pag = Math.min(salary * 0.02, 200);
-
-    const statutory = sss + phil + pag;
-    const taxable = Math.max(0, salary - statutory);
-    let tax = 0;
-    if (taxable > 10417) {
-        if (taxable <= 16667) tax = (taxable - 10417) * 0.20;
-        else if (taxable <= 33333) tax = 1250 + (taxable - 16667) * 0.25;
-        else if (taxable <= 83333) tax = 5416.67 + (taxable - 33333) * 0.30;
-    }
-
-    return { sss, phil, pag, tax: Math.round(tax * 100) / 100 };
-  };
-
   const formatMoney = (value) =>
     `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -174,35 +132,6 @@ const Payroll = () => {
     const parts = cleanValue.split('.');
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     return parts.length > 1 ? `${parts[0]}.${parts[1].slice(0, 2)}` : parts[0];
-  };
-
-  const parseFormattedNumber = (value) => {
-    if (!value) return 0;
-    const clean = value.toString().replace(/,/g, '');
-    const num = parseFloat(clean) || 0;
-    return Math.max(0, num); // Force non-negative
-  };
-
-  const onSalaryChange = (displayValue) => {
-    const numericValue = parseFormattedNumber(displayValue);
-    const { sss, phil, pag, tax } = calculateStatutory(numericValue);
-    
-    setConfigData({
-        ...configData,
-        basicSalary: numericValue,
-        sssContribution: sss,
-        philHealthContribution: phil,
-        pagIbigContribution: pag,
-        withholdingTax: tax
-    });
-  };
-
-  const handleGenericChange = (field, displayValue) => {
-    const numericValue = parseFormattedNumber(displayValue);
-    setConfigData(prev => ({
-      ...prev,
-      [field]: numericValue
-    }));
   };
 
   const handleViewPayslip = (record) => {
@@ -455,7 +384,7 @@ const Payroll = () => {
             {/* --- SECTION 1: EARNINGS --- */}
             <h6 className="fw-bold mb-3 border-bottom pb-2 text-primary d-flex justify-content-between">
               1. Monthly Earnings & Allowances 
-              {editingEmployee?.contractType === 'Regular' && <Badge bg="primary-subtle" className="text-primary border border-primary fw-normal" style={{ fontSize: '10px' }}>Editable</Badge>}
+              <Badge bg="secondary-subtle" className="text-secondary border border-secondary fw-normal" style={{ fontSize: '10px' }}>View Only</Badge>
             </h6>
             <Row className="mb-3">
               <Col md={4}>
@@ -464,9 +393,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.basicSalary)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? 'border-primary' : 'bg-light'}
-                    onChange={e => onSalaryChange(e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -476,9 +404,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.housingAllowance)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('housingAllowance', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -488,9 +415,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.transportAllowance)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('transportAllowance', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -500,9 +426,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.mealAllowance)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('mealAllowance', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -512,9 +437,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.otherAllowances)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('otherAllowances', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -553,7 +477,10 @@ const Payroll = () => {
             </Row>
 
             {/* --- SECTION 3: LOANS & RATES --- */}
-            <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger">3. Active Loans & Penalty Rates</h6>
+            <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger d-flex justify-content-between align-items-center">
+              3. Active Loans & Penalty Rates
+              <Badge bg="secondary-subtle" className="text-secondary border border-secondary fw-normal" style={{ fontSize: '10px' }}>View Only</Badge>
+            </h6>
             <Row className="mb-3">
               <Col md={4}>
                 <Form.Group>
@@ -561,9 +488,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.sssLoan)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('sssLoan', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -573,9 +499,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.pagIbigLoan)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('pagIbigLoan', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -585,9 +510,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.companyLoan)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('companyLoan', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -599,9 +523,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.absencePenaltyRate)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('absencePenaltyRate', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -611,9 +534,8 @@ const Payroll = () => {
                   <Form.Control 
                     type="text" 
                     value={formatCurrencyInput(configData.latePenaltyRate)} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => handleGenericChange('latePenaltyRate', e.target.value)}
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -622,18 +544,8 @@ const Payroll = () => {
         </Modal.Body>
         <Modal.Footer className="border-0">
           <Button variant="outline-secondary" className="rounded-pill px-4" onClick={() => setShowConfigModal(false)}>
-            {editingEmployee?.contractType === 'Regular' ? 'Cancel' : 'Close Profile'}
+            Close Profile
           </Button>
-          {editingEmployee?.contractType === 'Regular' && (
-            <Button 
-              className="rounded-pill px-5 border-0 shadow-sm" 
-              style={{ backgroundColor: '#D29191', fontWeight: '600' }}
-              onClick={handleSaveConfig}
-              disabled={isSavingConfig}
-            >
-              {isSavingConfig ? <Spinner size="sm" /> : 'Save Changes'}
-            </Button>
-          )}
         </Modal.Footer>
       </Modal>
     </div>

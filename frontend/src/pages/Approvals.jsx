@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Table, Badge, Button, Nav, Spinner, Alert } from 'react-bootstrap';
+import { Row, Col, Card, Table, Badge, Button, Spinner, Alert } from 'react-bootstrap';
 import axios from 'axios';
-import { Check, X, Clock, FileText, AlertCircle } from 'lucide-react';
+import { Clock, FileText, AlertCircle } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Approvals = () => {
@@ -83,7 +83,7 @@ const Approvals = () => {
             <td className="fw-bold">{leave.fullName || 'Employee'}</td>
             <td>
               <small>
-                {leave.startDate ? new Date(leave.startDate).toLocaleDateString() : '?'} - 
+                {leave.startDate ? new Date(leave.startDate).toLocaleDateString() : '?'} -
                 {leave.endDate ? new Date(leave.endDate).toLocaleDateString() : '?'}
               </small>
             </td>
@@ -117,7 +117,7 @@ const Approvals = () => {
               <div>{p.reason || p.penalty_type || 'Penalty'}</div>
               {p.source && <small className="text-muted">{p.source}</small>}
             </td>
-            <td className="text-danger fw-bold">-₱{(p.amount || 0).toLocaleString()}</td>
+            <td className="text-danger fw-bold">-PHP {(p.amount || 0).toLocaleString()}</td>
             <td className="text-end">{getStatusBadge(p.status)}</td>
           </tr>
         ))}
@@ -128,25 +128,29 @@ const Approvals = () => {
   return (
     <div className="main-content-sia">
       <TopBar title="Monitoring" />
-      
+
       <Row className="mb-4">
         <Col md={12}>
+          <Alert variant="light" className="border rounded-4 shadow-sm">
+            This page is read-only. Leave and overtime approval actions now happen in HR, and payroll only mirrors their synced status.
+          </Alert>
+
           <div className="bg-white p-2 rounded-pill shadow-sm d-inline-flex gap-1 mb-4 overflow-auto max-w-100">
-            <Button 
+            <Button
               onClick={() => setActiveTab('overtime')}
               className={`rounded-pill px-4 border-0 ${activeTab === 'overtime' ? 'shadow-sm' : ''}`}
               style={{ backgroundColor: activeTab === 'overtime' ? '#D29191' : 'transparent', color: activeTab === 'overtime' ? 'white' : '#A08E8E', fontSize: '13px', fontWeight: '600' }}
             >
               <Clock size={16} className="me-2"/> Overtime
             </Button>
-            <Button 
+            <Button
               onClick={() => setActiveTab('leaves')}
               className={`rounded-pill px-4 border-0 ${activeTab === 'leaves' ? 'shadow-sm' : ''}`}
               style={{ backgroundColor: activeTab === 'leaves' ? '#D29191' : 'transparent', color: activeTab === 'leaves' ? 'white' : '#A08E8E', fontSize: '13px', fontWeight: '600' }}
             >
               <FileText size={16} className="me-2"/> Leave Monitoring
             </Button>
-            <Button 
+            <Button
               onClick={() => setActiveTab('penalties')}
               className={`rounded-pill px-4 border-0 ${activeTab === 'penalties' ? 'shadow-sm' : ''}`}
               style={{ backgroundColor: activeTab === 'penalties' ? '#D29191' : 'transparent', color: activeTab === 'penalties' ? 'white' : '#A08E8E', fontSize: '13px', fontWeight: '600' }}
