@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Form, Button, Table, Badge, Spinner, Alert, Modal } from 'react-bootstrap';
 import axios from 'axios';
-import { Search, ChevronDown, Check, Download, Calendar, ArrowRight, Settings, Users, FileText, Edit, Eye } from 'lucide-react';
+import { Search, Check, Download, Settings, Users, FileText, Eye } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Payroll = () => {
@@ -21,7 +21,6 @@ const Payroll = () => {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configData, setConfigData] = useState({});
-  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   // Payslips State
   const [payrollHistory, setPayrollHistory] = useState([]);
@@ -117,58 +116,22 @@ const Payroll = () => {
     }
   };
 
-  const handleSaveConfig = async () => {
-    setIsSavingConfig(true);
-    try {
-      await axios.post(`http://localhost:8000/payroll/employees/${editingEmployee.id}/payroll-config`, configData);
-      setShowConfigModal(false);
-      setIsSavingConfig(false);
-      alert("Changes saved to Payroll Overrides successfully!");
-      fetchEmployees(); // Refresh list to see new values
-    } catch (err) {
-      console.error("Failed to save config", err);
-      setIsSavingConfig(false);
-      alert("Error saving payroll manipulation.");
-    }
-  };
+  const formatMoney = (value) =>
+    `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // --- Real-time Statutory Calculations ---
-  const calculateStatutory = (salary) => {
-    if (!salary || salary <= 0) return { sss: 0, phil: 0, pag: 0, tax: 0 };
+  const formatDateLabel = (value) =>
+    value ? new Date(value).toLocaleDateString() : 'N/A';
+
+  // --- Helper Functions for Formatting & Validation ---
+  const formatCurrencyInput = (value) => {
+    if (!value && value !== 0) return '';
+    // Remove non-numeric characters except decimal point
+    const cleanValue = value.toString().replace(/[^0-9.]/g, '');
+    if (!cleanValue) return '';
     
-    let sss = 2250;
-    if (salary <= 10000) sss = 450;
-    else if (salary <= 20000) sss = 900;
-    else if (salary <= 30000) sss = 1350;
-    else if (salary <= 40000) sss = 1800;
-
-    const philBasis = Math.max(10000, Math.min(salary, 100000));
-    const phil = Math.round(philBasis * 0.025 * 100) / 100;
-    const pag = Math.min(salary * 0.02, 200);
-
-    const statutory = sss + phil + pag;
-    const taxable = Math.max(0, salary - statutory);
-    let tax = 0;
-    if (taxable > 20833) {
-        if (taxable <= 33333) tax = (taxable - 20833) * 0.20;
-        else if (taxable <= 66666) tax = 2500 + (taxable - 33333) * 0.25;
-        else if (taxable <= 166666) tax = 10833.33 + (taxable - 66666) * 0.30;
-    }
-
-    return { sss, phil, pag, tax: Math.round(tax * 100) / 100 };
-  };
-
-  const onSalaryChange = (newSalary) => {
-    const val = parseFloat(newSalary) || 0;
-    const { sss, phil, pag, tax } = calculateStatutory(val);
-    setConfigData({
-        ...configData,
-        basicSalary: val,
-        sssContribution: sss,
-        philHealthContribution: phil,
-        pagIbigContribution: pag,
-        withholdingTax: tax
-    });
+    const parts = cleanValue.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.length > 1 ? `${parts[0]}.${parts[1].slice(0, 2)}` : parts[0];
   };
 
   const handleViewPayslip = (record) => {
@@ -421,18 +384,17 @@ const Payroll = () => {
             {/* --- SECTION 1: EARNINGS --- */}
             <h6 className="fw-bold mb-3 border-bottom pb-2 text-primary d-flex justify-content-between">
               1. Monthly Earnings & Allowances 
-              {editingEmployee?.contractType === 'Regular' && <Badge bg="primary-subtle" className="text-primary border border-primary fw-normal" style={{ fontSize: '10px' }}>Editable</Badge>}
+              <Badge bg="secondary-subtle" className="text-secondary border border-secondary fw-normal" style={{ fontSize: '10px' }}>View Only</Badge>
             </h6>
             <Row className="mb-3">
               <Col md={4}>
                 <Form.Group>
                   <Form.Label className="small fw-bold">Basic Salary</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.basicSalary || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? 'border-primary' : 'bg-light'}
-                    onChange={e => onSalaryChange(e.target.value)}
+                    type="text" 
+                    value={formatCurrencyInput(configData.basicSalary)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -440,11 +402,10 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Housing</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.housingAllowance || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, housingAllowance: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.housingAllowance)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -452,11 +413,10 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Transport</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.transportAllowance || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, transportAllowance: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.transportAllowance)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -464,11 +424,10 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Meal</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.mealAllowance || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, mealAllowance: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.mealAllowance)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -476,11 +435,10 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Other</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.otherAllowances || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, otherAllowances: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.otherAllowances)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -495,41 +453,43 @@ const Payroll = () => {
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">SSS Contribution</Form.Label>
-                  <Form.Control type="number" value={configData.sssContribution || ''} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value={formatCurrencyInput(configData.sssContribution)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">PhilHealth</Form.Label>
-                  <Form.Control type="number" value={configData.philHealthContribution || ''} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value={formatCurrencyInput(configData.philHealthContribution)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">Pag-IBIG</Form.Label>
-                  <Form.Control type="number" value={configData.pagIbigContribution || ''} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value={formatCurrencyInput(configData.pagIbigContribution)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">Withholding Tax</Form.Label>
-                  <Form.Control type="number" value={configData.withholdingTax || ''} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value={formatCurrencyInput(configData.withholdingTax)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
             </Row>
 
             {/* --- SECTION 3: LOANS & RATES --- */}
-            <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger">3. Active Loans & Penalty Rates</h6>
+            <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger d-flex justify-content-between align-items-center">
+              3. Active Loans & Penalty Rates
+              <Badge bg="secondary-subtle" className="text-secondary border border-secondary fw-normal" style={{ fontSize: '10px' }}>View Only</Badge>
+            </h6>
             <Row className="mb-3">
               <Col md={4}>
                 <Form.Group>
                   <Form.Label className="small fw-bold text-danger">SSS Loan</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.sssLoan || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, sssLoan: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.sssLoan)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -537,11 +497,10 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold text-danger">Pag-IBIG Loan</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.pagIbigLoan || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, pagIbigLoan: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.pagIbigLoan)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -549,11 +508,10 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold text-danger">Company Loan</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.companyLoan || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, companyLoan: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.companyLoan)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -563,11 +521,10 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Absence Penalty (Per Day)</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.absencePenaltyRate || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, absencePenaltyRate: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.absencePenaltyRate)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -575,11 +532,10 @@ const Payroll = () => {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Late Penalty (Per Hour)</Form.Label>
                   <Form.Control 
-                    type="number" 
-                    value={configData.latePenaltyRate || ''} 
-                    readOnly={editingEmployee?.contractType !== 'Regular'}
-                    className={editingEmployee?.contractType === 'Regular' ? '' : 'bg-light'}
-                    onChange={e => setConfigData({...configData, latePenaltyRate: parseFloat(e.target.value)})}
+                    type="text" 
+                    value={formatCurrencyInput(configData.latePenaltyRate)} 
+                    readOnly
+                    className="bg-light text-muted"
                   />
                 </Form.Group>
               </Col>
@@ -588,18 +544,8 @@ const Payroll = () => {
         </Modal.Body>
         <Modal.Footer className="border-0">
           <Button variant="outline-secondary" className="rounded-pill px-4" onClick={() => setShowConfigModal(false)}>
-            {editingEmployee?.contractType === 'Regular' ? 'Cancel' : 'Close Profile'}
+            Close Profile
           </Button>
-          {editingEmployee?.contractType === 'Regular' && (
-            <Button 
-              className="rounded-pill px-5 border-0 shadow-sm" 
-              style={{ backgroundColor: '#D29191', fontWeight: '600' }}
-              onClick={handleSaveConfig}
-              disabled={isSavingConfig}
-            >
-              {isSavingConfig ? <Spinner size="sm" /> : 'Save Changes'}
-            </Button>
-          )}
         </Modal.Footer>
       </Modal>
     </div>
@@ -697,7 +643,7 @@ const Payroll = () => {
                 <Row>
                   <Col xs={6}>
                     <small className="d-block text-muted" style={{ fontSize: '11px' }}>Pay Period</small>
-                    <span style={{ fontSize: '13px' }}>{new Date(selectedPayslip.pay_period_start).toLocaleDateString()} - {new Date(selectedPayslip.pay_period_end).toLocaleDateString()}</span>
+                    <span style={{ fontSize: '13px' }}>{formatDateLabel(selectedPayslip.pay_period_start)} - {formatDateLabel(selectedPayslip.pay_period_end)}</span>
                   </Col>
                   <Col xs={6} className="text-end">
                     <small className="d-block text-muted" style={{ fontSize: '11px' }}>Department</small>
@@ -710,58 +656,69 @@ const Payroll = () => {
                 <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>EARNINGS</h6>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">Basic Salary</span>
-                  <span>₱{selectedPayslip.basic_salary.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>{formatMoney(selectedPayslip.basic_salary)}</span>
                 </div>
                 
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">Overtime Pay</span>
-                  <span>₱{(selectedPayslip.total_overtime || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>{formatMoney(selectedPayslip.total_overtime)}</span>
                 </div>
 
                 {selectedPayslip.excess_days_pay > 0 && (
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                     <span className="text-muted">Excess / Rest Day Pay</span>
-                    <span>₱{selectedPayslip.excess_days_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>{formatMoney(selectedPayslip.excess_days_pay)}</span>
                   </div>
                 )}
 
                 {selectedPayslip.holiday_pay > 0 && (
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                     <span className="text-muted">Regular Holiday Premium (100%)</span>
-                    <span>₱{selectedPayslip.holiday_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>{formatMoney(selectedPayslip.holiday_pay)}</span>
                   </div>
                 )}
 
                 {selectedPayslip.special_day_pay > 0 && (
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                     <span className="text-muted">Special Day Premium (30%)</span>
-                    <span>₱{selectedPayslip.special_day_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span>{formatMoney(selectedPayslip.special_day_pay)}</span>
+                  </div>
+                )}
+
+                {selectedPayslip.worked_holiday_items?.length > 0 && (
+                  <div className="mt-2 pt-2 border-top-dashed">
+                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Worked Holidays</small>
+                    {selectedPayslip.worked_holiday_items.map((item, idx) => (
+                      <div key={`${item.date}-${idx}`} className="mb-1" style={{ fontSize: '12px' }}>
+                        <span className="ps-2">{formatDateLabel(item.date)} | {item.name} ({item.type})</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
                 <div className="mt-2 pt-2 border-top-dashed">
                   <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Allowances</small>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Housing</span>
-                    <span>₱{(selectedPayslip.housing_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Housing</span>
+                    <span>{formatMoney(selectedPayslip.housing_allowance)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Transport</span>
-                    <span>₱{(selectedPayslip.transport_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Transport</span>
+                    <span>{formatMoney(selectedPayslip.transport_allowance)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Meal</span>
-                    <span>₱{(selectedPayslip.meal_allowance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Meal</span>
+                    <span>{formatMoney(selectedPayslip.meal_allowance)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Other</span>
-                    <span>₱{(selectedPayslip.other_allowances || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Other</span>
+                    <span>{formatMoney(selectedPayslip.other_allowances)}</span>
                   </div>
                 </div>
 
                 <div className="d-flex justify-content-between mt-2 pt-2 border-top text-success fw-bold">
                   <span>Gross Pay</span>
-                  <span>₱{selectedPayslip.gross_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>{formatMoney(selectedPayslip.gross_pay)}</span>
                 </div>
               </div>
 
@@ -769,41 +726,59 @@ const Payroll = () => {
                 <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>DEDUCTIONS</h6>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">SSS Contribution</span>
-                  <span>-₱{selectedPayslip.sss_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>-{formatMoney(selectedPayslip.sss_deduction)}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">PhilHealth</span>
-                  <span>-₱{selectedPayslip.philhealth_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>-{formatMoney(selectedPayslip.philhealth_deduction)}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">Pag-IBIG</span>
-                  <span>-₱{selectedPayslip.pagibig_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>-{formatMoney(selectedPayslip.pagibig_deduction)}</span>
                 </div>
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">Withholding Tax</span>
-                  <span>-₱{selectedPayslip.withholding_tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>-{formatMoney(selectedPayslip.withholding_tax)}</span>
                 </div>
                 
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted text-danger">Absence Deduction</span>
-                  <span className="text-danger">-₱{selectedPayslip.absence_deduction.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span className="text-danger">-{formatMoney(selectedPayslip.absence_deduction)}</span>
                 </div>
                 
                 <div className="mt-2 pt-2 border-top-dashed">
                   <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Loans & Penalties</small>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Total Loans</span>
-                    <span>-₱{(selectedPayslip.total_loans || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Total Loans</span>
+                    <span>-{formatMoney(selectedPayslip.total_loans)}</span>
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">• Penalties</span>
-                    <span>-₱{(selectedPayslip.total_penalties || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="ps-2">Late Penalties</span>
+                    <span>-{formatMoney(selectedPayslip.total_penalties)}</span>
                   </div>
                 </div>
 
+                {selectedPayslip.total_late_hours > 0 && (
+                  <div className="mt-2 pt-2 border-top-dashed">
+                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>
+                      Late Details ({selectedPayslip.total_late_hours.toFixed(2)}h total)
+                    </small>
+                    {selectedPayslip.late_penalty_items?.map((item, idx) => (
+                      <div key={`${item.date}-${idx}`} className="mb-1" style={{ fontSize: '12px' }}>
+                        <span className="ps-2">{formatDateLabel(item.date)} | {item.late_time} ({Number(item.late_hours || 0).toFixed(2)}h)</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="d-flex justify-content-between mt-2 pt-2 border-top text-danger fw-bold">
-                  <span>Total Deductions</span>
-                  <span>-₱{selectedPayslip.total_deductions.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span>Deductions Subtotal</span>
+                  <span>-{formatMoney(selectedPayslip.total_deductions)}</span>
+                </div>
+
+                <div className="d-flex justify-content-between mt-2 pt-2 border-top text-danger fw-bold">
+                  <span>Total Deductions & Penalties</span>
+                  <span>-{formatMoney((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0))}</span>
                 </div>
               </div>
 
@@ -833,9 +808,20 @@ const Payroll = () => {
 
               <div className="p-3 rounded-3 mt-4 text-white d-flex justify-content-between align-items-center" style={{ backgroundColor: '#5A4343' }}>
                 <span className="fw-bold">NET TAKE HOME PAY</span>
-                <h4 className="mb-0 fw-bold">₱{selectedPayslip.net_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h4>
+                <h4 className="mb-0 fw-bold">{formatMoney(selectedPayslip.net_pay)}</h4>
               </div>
               
+              {selectedPayslip.zero_net_reason && (
+                <Alert variant="warning" className="mt-3 mb-0">
+                  {selectedPayslip.zero_net_reason}
+                  {((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0)) > (selectedPayslip.gross_pay || 0) && (
+                    <div className="mt-2">
+                      Shortfall: {formatMoney(((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0)) - (selectedPayslip.gross_pay || 0))}
+                    </div>
+                  )}
+                </Alert>
+              )}
+
               <div className="mt-4 text-center">
                 <small className="text-muted" style={{ fontSize: '10px' }}>
                   This is a computer-generated document. No signature is required.

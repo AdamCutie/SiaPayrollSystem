@@ -45,6 +45,12 @@ class PayrollSnapshot(BaseModel):
     total_loans: float = 0.0
     total_penalties: float = 0.0
     total_deductions: float
+
+    total_late_hours: float = 0.0
+    late_penalty_rate: float = 0.0
+    late_penalty_items: List[dict] = Field(default_factory=list)
+    worked_holiday_items: List[dict] = Field(default_factory=list)
+    zero_net_reason: Optional[str] = None
     
     # 🚀 NEW: Attendance tracking for the Payslip (Figma: component_6.png)
     days_worked: int = 0
@@ -95,32 +101,6 @@ class Holiday(BaseModel):
     date: datetime
     name: str # e.g., "Chinese New Year"
     type: str # Regular Holiday, Special Non-Working Day
-
-class PenaltyRecord(BaseModel):
-    """Matches Figma: Penalize.png table"""
-    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
-    
-    id: Optional[PyObjectId] = Field(default=None, alias="_id")
-    employee_id: str
-    full_name: str
-    date: datetime
-    penalty_type: str # Absent, Tardiness, LWOP
-    amount: float
-    status: str = "Approved"
-
-class OvertimeRecord(BaseModel):
-    """Matches Figma: Overtime.png table"""
-    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
-    
-    id: Optional[PyObjectId] = Field(default=None, alias="_id")
-    employee_id: str
-    full_name: str
-    date: datetime
-    hours: float
-    rate_per_hour: float
-    total_pay: float
-    status: str = "Pending"
-
 
 class AuthUser(BaseModel):
     """

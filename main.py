@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from core.config import settings
 from core.database import check_db_connection, close_db_connection, ensure_db_indexes
+from modules.sync.service import HRSyncService
 
 # --- Import Module Routers ---
 from modules.auth.router import router as auth_router
@@ -14,6 +15,7 @@ from modules.attendance.router import router as attendance_router
 from modules.leaves.router import router as leave_router
 from modules.holidays.router import router as holiday_router
 from modules.departments.router import router as department_router
+from modules.sync.router import router as sync_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -28,6 +30,7 @@ async def lifespan(app: FastAPI):
     if db_connected:
         print("[OK] MongoDB Connection: SUCCESS.")
         await ensure_db_indexes()
+        await HRSyncService.start_auto_sync()
     else:
         print("[ERROR] MongoDB Connection: FAILED. Check your .env configuration.")
 
@@ -35,6 +38,7 @@ async def lifespan(app: FastAPI):
 
     # --- Shutdown Logic ---
     print("--- Shutting down SiaPayrollSystem ---")
+    await HRSyncService.stop_auto_sync()
     close_db_connection()
 
 # Initialize the FastAPI Application
@@ -80,6 +84,7 @@ app.include_router(holiday_router, prefix="/payroll")
 
 # Departments (Horizontal Cards)
 app.include_router(department_router, prefix="/payroll")
+app.include_router(sync_router, prefix="/payroll")
 
 @app.get("/", tags=["Health"])
 async def health_check():

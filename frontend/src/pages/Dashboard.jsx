@@ -5,13 +5,13 @@ import TopBar from '../components/layout/TopBar';
 import StatCard from '../components/dashboard/StatCard';
 import AttendanceTable from '../components/dashboard/AttendanceTable';
 import PayrollChart from '../components/dashboard/PayrollChart';
+import { useNavigate } from 'react-router-dom';
 
 const Dashboard = () => {
-  // State to hold the backend data
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch data from our FastAPI backend on component mount
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -33,33 +33,30 @@ const Dashboard = () => {
     <div className="main-content-sia">
       <TopBar title="Overview" />
 
-      {/* Top Stat Cards - Row 1 */}
       <Row className="g-4 mb-4">
         <Col md={3}>
           <StatCard title="Total Employees">
             <div className="d-flex justify-content-around text-center">
               <div><h4 className="fw-bold m-0">{stats.employees.total}</h4><small className="text-muted">Total</small></div>
               <div><h4 className="fw-bold m-0">{stats.employees.regular}</h4><small className="text-muted">Regular</small></div>
-              {/* Placeholder for data from backend */}
-              <div className="text-warning"><h4 className="fw-bold m-0">{stats.employees.provisionary || 0}</h4><small className="text-muted">Provisionary</small></div>
+              <div className="text-warning"><h4 className="fw-bold m-0">{stats.employees.probationary || 0}</h4><small className="text-muted">Probationary</small></div>
             </div>
           </StatCard>
         </Col>
-        
+
         <Col md={3}>
-          <StatCard title="Approval Status">
+          <StatCard title="Request Status">
             <div className="d-flex justify-content-around text-center">
               <div><h4 className="fw-bold m-0">{stats.approvals.requested}</h4><small className="text-muted">Requested</small></div>
               <div><h4 className="fw-bold m-0">{stats.approvals.approved}</h4><small className="text-muted">Approved</small></div>
               <div className="text-warning"><h4 className="fw-bold m-0">{stats.approvals.pending}</h4><small className="text-muted">Pending</small></div>
-              {/* Placeholder for data from backend */}
               <div className="text-danger"><h4 className="fw-bold m-0">{stats.approvals.rejected || 0}</h4><small className="text-muted">Rejected</small></div>
             </div>
           </StatCard>
         </Col>
 
         <Col md={6}>
-           <StatCard title="Departments">
+          <StatCard title="Departments">
             <div className="d-flex flex-wrap gap-2 mt-1 justify-content-center">
               {Object.keys(stats.departments).map(dept => (
                 <span key={dept} className="badge rounded-pill bg-light text-dark border px-3 py-2" style={{ fontWeight: '500' }}>
@@ -71,30 +68,33 @@ const Dashboard = () => {
         </Col>
       </Row>
 
-      {/* Top Stat Cards - Row 2 (Payouts) */}
       <Row className="g-4 mb-4">
         <Col md={6}>
-            <div className="bg-white p-4 rounded-4 shadow-sm text-center">
-                <small className="text-muted text-uppercase" style={{ fontSize: '12px' }}>Total Payout</small>
-                <h2 className="fw-bold m-0 mt-1">₱ {stats.payouts.total_payout.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
+          <div className="bg-white p-4 rounded-4 shadow-sm text-center">
+            <small className="text-muted text-uppercase" style={{ fontSize: '12px' }}>Total Payout</small>
+            <h2 className="fw-bold m-0 mt-1">PHP {stats.payouts.total_payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h2>
+          </div>
         </Col>
         <Col md={6}>
-            <div className="bg-white p-4 rounded-4 shadow-sm text-center">
-                <small className="text-muted text-uppercase" style={{ fontSize: '12px' }}>Delayed Payout</small>
-                <h2 className="fw-bold m-0 mt-1 text-danger">₱ {stats.payouts.delayed_payout.toLocaleString(undefined, {minimumFractionDigits: 2})}</h2>
-            </div>
+          <div className="bg-white p-4 rounded-4 shadow-sm text-center">
+            <small className="text-muted text-uppercase" style={{ fontSize: '12px' }}>Delayed Payout</small>
+            <h2 className="fw-bold m-0 mt-1 text-danger">PHP {stats.payouts.delayed_payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h2>
+          </div>
         </Col>
       </Row>
-      
-      {/* Payroll History Chart */}
+
       <PayrollChart />
 
-      {/* Employee Work Log Table */}
       <div className="mt-4">
         <div className="d-flex justify-content-between align-items-center mb-3">
-          <h6 className="fw-bold m-0">Employee List</h6>
-          <small className="text-primary cursor-pointer">View All</small>
+          <h6 className="fw-bold m-0">Employee logs</h6>
+          <small
+            className="text-primary fw-bold"
+            style={{ cursor: 'pointer', textDecoration: 'underline' }}
+            onClick={() => navigate('/attendance')}
+          >
+            View All
+          </small>
         </div>
         <AttendanceTable />
       </div>

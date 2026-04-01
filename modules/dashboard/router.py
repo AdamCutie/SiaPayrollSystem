@@ -1,34 +1,9 @@
 from fastapi import APIRouter, Depends
 
 from core.auth import require_admin
-from core.database import db, hr_db
-from integrations.hr.adapter import EMPLOYEES_COLLECTION
+from core.database import db
 from .schemas import DashboardOverview
-
-# --- Dashboard metric definitions (easy to change) ---
-# Which payroll-db collections count as "approval work items" for the admin dashboard?
-APPROVAL_SOURCES: list[str] = [
-    "AttendanceLogs",
-    "LeaveRequests",
-    "OvertimeRecords",
-    "PenaltyRecords",
-]
-
-APPROVAL_STATUSES: tuple[str, ...] = ("Approved", "Pending", "Rejected")
 TOP_DEPARTMENTS_LIMIT = 5
-
-
-async def _status_counts(collection_name: str) -> dict[str, int]:
-    """
-    Returns {status: count} for a collection, defaulting missing status -> "Pending".
-    """
-    coll = db[collection_name]
-    pipeline = [
-        {"$project": {"status": {"$ifNull": ["$status", "Pending"]}}},
-        {"$group": {"_id": "$status", "count": {"$sum": 1}}},
-    ]
-    rows = await coll.aggregate(pipeline).to_list(None)
-    return {str(r["_id"]): int(r["count"]) for r in rows if r.get("_id") is not None}
 
 
 # Initialize the Router
@@ -44,15 +19,15 @@ async def get_dashboard_overview():
     The 'Brain' for the Admin Overview Page.
     Fetches real-time employee counts from HR and financial totals from Payroll.
     """
-    # 1. Fetch Employee Identity Stats from Legacy HR (Read-Only)
-    hr_coll = hr_db[EMPLOYEES_COLLECTION]
-    total = await hr_coll.count_documents({"isActive": True})
-    regular = await hr_coll.count_documents({"isActive": True, "contractType": "Regular"})
+    # 1. Fetch Employee Identity Stats from synced HR mirror
+    hr_coll = db["SyncedHREmployees"]
+    total = await hr_coll.count_documents({"payload.isActive": True})
+    regular = await hr_coll.count_documents({"payload.isActive": True, "payload.contractType": "Regular"})
 
     # 1b. Department breakdown (top N)
     dept_pipeline = [
-        {"$match": {"isActive": True}},
-        {"$group": {"_id": "$department", "count": {"$sum": 1}}},
+        {"$match": {"payload.isActive": True}},
+        {"$group": {"_id": "$payload.department", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": TOP_DEPARTMENTS_LIMIT},
     ]
@@ -90,19 +65,38 @@ async def get_dashboard_overview():
     approvals_pending = 0
     approvals_rejected = 0
 
-    for source in APPROVAL_SOURCES:
-        counts = await _status_counts(source)
-        approvals_requested += sum(counts.values())
-        approvals_approved += counts.get("Approved", 0)
-        approvals_pending += counts.get("Pending", 0)
-        approvals_rejected += counts.get("Rejected", 0)
+    # 3a. Leaves from synced HR mirror
+    hr_leave_coll = db["SyncedHRLeaves"]
+    l_total = await hr_leave_coll.count_documents({})
+    l_app = await hr_leave_coll.count_documents({"status": {"$regex": "^approved$", "$options": "i"}})
+    l_pen = await hr_leave_coll.count_documents({"status": {"$regex": "^pending$", "$options": "i"}})
+    l_rej = await hr_leave_coll.count_documents({"status": {"$regex": "^(rejected|declined)$", "$options": "i"}})
+
+    approvals_requested += l_total
+    approvals_approved += l_app
+    approvals_pending += l_pen
+    approvals_rejected += l_rej
+
+    # 3b. Overtime statuses from synced HR mirror
+    hr_ot_coll = db["SyncedHROvertimeRequests"]
+    o_total = await hr_ot_coll.count_documents({})
+    o_app = await hr_ot_coll.count_documents({"status": {"$regex": "^approved$", "$options": "i"}})
+    o_pen = await hr_ot_coll.count_documents({"status": {"$regex": "^pending$", "$options": "i"}})
+    o_rej = await hr_ot_coll.count_documents({"status": {"$regex": "^(rejected|declined)$", "$options": "i"}})
+
+    approvals_requested += o_total
+    approvals_approved += o_app
+    approvals_pending += o_pen
+    approvals_rejected += o_rej
+
+    # 🚀 REMOVED: Attendance Logs (HR) are no longer counted in Approval Status
 
     # 4. Return Combined Stats
     return {
         "employees": {
             "total": total,
             "regular": regular,
-            "provisional": total - regular
+            "probationary": total - regular
         },
         "approvals": {
             "requested": approvals_requested,

@@ -2,7 +2,13 @@ import math
 from datetime import datetime, timedelta
 from typing import List, Optional
 from core.database import db  # Access to OUR new database
-from integrations.hr.adapter import get_all_active_employees, get_employee_payroll_config
+from integrations.hr.adapter import (
+    get_synced_active_employees,
+    get_synced_attendance_list,
+    get_synced_approved_leave_dates,
+    get_synced_employee_payroll_config,
+    get_synced_overtime_requests,
+)
 from modules.compensation.service import CompensationService
 from db.models import PayrollSnapshot  # Access to our storage model
 from bson import ObjectId
@@ -17,8 +23,7 @@ class PayrollProcessingService:
     @staticmethod
     def _count_weekdays(start_date: datetime, end_date: datetime) -> int:
         """
-        Counts Mon-Fri days in the pay period (inclusive).
-        Used to replace the previous hard-coded workday assumption.
+        Counts Mon-Sat days in the pay period (inclusive).
         """
         start_day = start_date.date()
         end_day = end_date.date()
@@ -28,7 +33,7 @@ class PayrollProcessingService:
         days = 0
         cursor = start_day
         while cursor <= end_day:
-            if cursor.weekday() < 5:
+            if cursor.weekday() < 6:
                 days += 1
             cursor += timedelta(days=1)
         return days
@@ -74,20 +79,193 @@ class PayrollProcessingService:
 
         return issues
 
+    @staticmethod
+    def _parse_late_duration_to_hours(value, field_name: str = "") -> float:
+        if value in (None, "", 0, 0.0, "0", "00:00", "00:00:00"):
+            return 0.0
+
+        if isinstance(value, (int, float)):
+            numeric = float(value)
+            if not math.isfinite(numeric) or numeric <= 0:
+                return 0.0
+            if "minute" in field_name.casefold():
+                return round(numeric / 60.0, 2)
+            return round(numeric, 2)
+
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return 0.0
+
+            if ":" in raw:
+                parts = raw.split(":")
+                try:
+                    h = int(parts[0])
+                    m = int(parts[1]) if len(parts) > 1 else 0
+                    s = int(parts[2]) if len(parts) > 2 else 0
+                    total_seconds = (h * 3600) + (m * 60) + s
+                    return round(total_seconds / 3600.0, 2)
+                except ValueError:
+                    return 0.0
+
+            try:
+                numeric = float(raw)
+            except ValueError:
+                return 0.0
+
+            if numeric <= 0:
+                return 0.0
+            if "minute" in field_name.casefold():
+                return round(numeric / 60.0, 2)
+            return round(numeric, 2)
+
+        return 0.0
+
+    @classmethod
+    def _calculate_hr_late_penalties(cls, attendance_logs: list[dict], late_penalty_rate: float) -> float:
+        total = 0.0
+        for log in attendance_logs:
+            for field_name in ("lateTime", "lateHours", "lateMinutes", "late", "tardiness"):
+                if field_name not in log:
+                    continue
+                late_hours = cls._parse_late_duration_to_hours(log.get(field_name), field_name)
+                if late_hours > 0:
+                    total += late_hours * float(late_penalty_rate or 0)
+                    break
+        return round(total, 2)
+
+    @classmethod
+    def _build_late_penalty_items(cls, attendance_logs: list[dict], late_penalty_rate: float) -> list[dict]:
+        items: list[dict] = []
+        for log in attendance_logs:
+            for field_name in ("lateTime", "lateHours", "lateMinutes", "late", "tardiness"):
+                if field_name not in log:
+                    continue
+                late_hours = cls._parse_late_duration_to_hours(log.get(field_name), field_name)
+                if late_hours <= 0:
+                    continue
+                late_date = cls._parse_hr_log_date(log.get("date"))
+                raw_value = log.get(field_name)
+                display_value = raw_value if isinstance(raw_value, str) else f"{late_hours:.2f}h"
+                items.append(
+                    {
+                        "date": late_date.isoformat() if late_date else None,
+                        "late_time": display_value,
+                        "late_hours": round(late_hours, 2),
+                        "rate": round(float(late_penalty_rate or 0), 2),
+                        "amount": round(late_hours * float(late_penalty_rate or 0), 2),
+                        "source_field": field_name,
+                    }
+                )
+                break
+        return items
+
+    @staticmethod
+    def _parse_hr_log_date(value):
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+            except ValueError:
+                try:
+                    return datetime.fromisoformat(value.split("T")[0]).date()
+                except ValueError:
+                    return None
+        return None
+
+    @classmethod
+    def _attendance_dates_from_logs(cls, attendance_logs: list[dict]) -> set:
+        return {
+            parsed
+            for log in attendance_logs
+            for parsed in [cls._parse_hr_log_date(log.get("date"))]
+            if parsed is not None
+        }
+
+    @staticmethod
+    def _count_payable_leave_days(approved_leave_dates: set, holiday_dates: set) -> int:
+        return sum(
+            1
+            for leave_day in approved_leave_dates
+            if leave_day.weekday() < 6 and leave_day not in holiday_dates
+        )
+
+    @staticmethod
+    def _build_worked_holiday_items(holidays: list, attendance_dates: set, daily_rate: float) -> list[dict]:
+        items: list[dict] = []
+        for holiday in holidays:
+            holiday_day = holiday.date.date()
+            if holiday_day not in attendance_dates:
+                continue
+            multiplier = 1.0 if holiday.type == "Regular Holiday" else 0.3
+            items.append(
+                {
+                    "date": holiday_day.isoformat(),
+                    "name": holiday.name,
+                    "type": holiday.type,
+                    "amount": round(daily_rate * multiplier, 2),
+                }
+            )
+        return items
+
+    @staticmethod
+    def _parse_overtime_hours(value) -> float:
+        if not value:
+            return 0.0
+        if isinstance(value, (int, float)):
+            return round(float(value), 2)
+        if isinstance(value, str) and ":" in value:
+            parts = value.split(":")
+            try:
+                hours = int(parts[0])
+                minutes = int(parts[1]) if len(parts) > 1 else 0
+                seconds = int(parts[2]) if len(parts) > 2 else 0
+                return round(hours + (minutes / 60.0) + (seconds / 3600.0), 2)
+            except ValueError:
+                return 0.0
+        try:
+            return round(float(value), 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @classmethod
+    async def _calculate_synced_overtime_pay(
+        cls,
+        employee_number: str,
+        start_date: datetime,
+        end_date: datetime,
+        basic_salary: float,
+    ) -> float:
+        requests = await get_synced_overtime_requests(
+            employee_number=employee_number,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        approved_requests = [
+            req for req in requests
+            if str(req.get("status", "")).casefold() == "approved"
+        ]
+        hourly_rate = ((float(basic_salary) / 26.0) / 8.0) * 1.25
+        total_pay = 0.0
+        for req in approved_requests:
+            total_pay += cls._parse_overtime_hours(req.get("overtimeWorked")) * hourly_rate
+        return round(total_pay, 2)
+
     @classmethod
     async def get_payroll_readiness(cls) -> dict:
         """
         Scans all active employees and flags any issues that would cause a skip.
         Useful for the Wizard Step 2: Employee Selection.
         """
-        employees = await get_all_active_employees()
+        employees = await get_synced_active_employees()
         results = []
         ready_count = 0
         incomplete_count = 0
 
         for emp in employees:
             full_name = f"{emp.lastName}, {emp.firstName}"
-            config = await get_employee_payroll_config(emp.id, emp.employeeId, full_name)
+            config = await get_synced_employee_payroll_config(emp.id, emp.employeeId, full_name)
             
             issues = []
             missing_config = False
@@ -138,7 +316,7 @@ class PayrollProcessingService:
         Executes a payroll run for all active employees.
         """
         collection = db["PayrollSnapshots"]
-        employees = await get_all_active_employees()
+        employees = await get_synced_active_employees()
         processed_count = 0
 
         for employee in employees:
@@ -154,7 +332,7 @@ class PayrollProcessingService:
                 print(f"SKIPPING: {full_name} already has a snapshot for this period.")
                 continue
 
-            config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
+            config = await get_synced_employee_payroll_config(employee.id, employee.employeeId, full_name)
             if not config:
                 print(f"WARNING: No payroll config found for {full_name}")
                 continue
@@ -165,19 +343,35 @@ class PayrollProcessingService:
                 continue
 
             # 1. Count Attendance from HR SYSTEM (Source of Truth)
-            from integrations.hr.adapter import get_hr_attendance_count, get_hr_approved_leaves
             from db.models import Holiday
-            
-            days_present_logs = await get_hr_attendance_count(employee.id, employee.employeeId, start_date, end_date)
-            approved_leaves = await get_hr_approved_leaves(employee.id, start_date, end_date)
+            attendance_logs = await get_synced_attendance_list(employee.employeeId, start_date, end_date)
+            attendance_dates = cls._attendance_dates_from_logs(attendance_logs)
+            hr_late_penalties = cls._calculate_hr_late_penalties(
+                attendance_logs,
+                float(getattr(config, "latePenaltyRate", 0) or 0),
+            )
+            late_penalty_rate = float(getattr(config, "latePenaltyRate", 0) or 0)
+            late_penalty_items = cls._build_late_penalty_items(attendance_logs, late_penalty_rate)
+            overtime_pay = await cls._calculate_synced_overtime_pay(
+                employee.employeeId,
+                start_date,
+                end_date,
+                config.basicSalary,
+            )
             
             # Fetch Holidays in this period
             holidays_coll = db["Holidays"]
             holiday_docs = await holidays_coll.find({"date": {"$gte": start_date, "$lte": end_date}}).to_list(None)
             holidays = [Holiday(**h) for h in holiday_docs]
+            holiday_dates = {holiday.date.date() for holiday in holidays}
+            approved_leave_dates = await get_synced_approved_leave_dates(employee.employeeId, start_date, end_date)
+            approved_work_leave_days = cls._count_payable_leave_days(approved_leave_dates, holiday_dates)
+            days_present_logs = len(attendance_dates)
+            daily_rate = round(float(config.basicSalary) / 26.0, 2)
+            worked_holiday_items = cls._build_worked_holiday_items(holidays, attendance_dates, daily_rate)
 
             # Total days present includes actual logs + approved paid leaves
-            days_present = days_present_logs + approved_leaves
+            days_present = days_present_logs + approved_work_leave_days
             expected_workdays = cls._count_weekdays(start_date, end_date)
 
             # 🛡️ ATTENDANCE REALITY GUARD
@@ -188,10 +382,12 @@ class PayrollProcessingService:
             # 2. Perform calculations using attendance data
             breakdown = await CompensationService.calculate_payroll_breakdown(
                 config, 
-                employee.id,
                 expected_workdays=expected_workdays,
                 days_present=days_present,
-                holidays=holidays
+                holidays=holidays,
+                hr_late_penalties=hr_late_penalties,
+                overtime_pay=overtime_pay,
+                attendance_dates=attendance_dates,
             )
 
             # 🛡️ NEGATIVE PAY GUARD
@@ -206,11 +402,19 @@ class PayrollProcessingService:
                 full_name=full_name,
                 department=employee.department,
                 **breakdown, # Spreads all itemized fields from breakdown
+                total_late_hours=round(sum(item["late_hours"] for item in late_penalty_items), 2),
+                late_penalty_rate=late_penalty_rate,
+                late_penalty_items=late_penalty_items,
+                worked_holiday_items=worked_holiday_items,
+                zero_net_reason=(
+                    "Take-home pay was reduced to 0.00 because total deductions and penalties exceeded gross pay for this period."
+                    if breakdown["gross_pay"] <= (breakdown["total_deductions"] + breakdown["total_penalties"])
+                    else None
+                ),
                 pay_period_start=start_date,
                 pay_period_end=end_date,
                 days_worked=expected_workdays,
                 days_present=days_present,
-                days_absent=max(0, expected_workdays - days_present)
             )
 
             try:
@@ -229,25 +433,12 @@ class PayrollProcessingService:
         """
         Executes a payroll run for a SPECIFIC list of employees (Figma Wizard Step 2).
         """
-        from core.database import hr_db
-        from integrations.hr.adapter import EMPLOYEES_COLLECTION
-        from integrations.hr.schemas import HREmployeeRead
-        from pydantic import ValidationError
-        
         collection = db["PayrollSnapshots"]
-        hr_coll = hr_db[EMPLOYEES_COLLECTION]
-        
-        obj_ids = [ObjectId(eid) for eid in employee_ids if ObjectId.is_valid(eid)]
-        cursor = hr_coll.find({"_id": {"$in": obj_ids}, "isActive": True})
-        
+        selected_ids = set(employee_ids)
+        employees = [emp for emp in await get_synced_active_employees() if emp.id in selected_ids]
+
         processed_count = 0
-        async for doc in cursor:
-            try:
-                employee = HREmployeeRead(**doc)
-            except ValidationError as e:
-                doc_id = doc.get("_id", "<unknown>")
-                print(f"WARNING: Skipping invalid HR employee doc _id={doc_id}: {e}")
-                continue
+        for employee in employees:
             full_name = f"{employee.lastName}, {employee.firstName}"
             
             # 🚀 DUPLICATE CHECK: Prevent double-paying
@@ -260,7 +451,7 @@ class PayrollProcessingService:
                 print(f"SKIPPING: {full_name} already has a snapshot for this period.")
                 continue
 
-            config = await get_employee_payroll_config(employee.id, employee.employeeId, full_name)
+            config = await get_synced_employee_payroll_config(employee.id, employee.employeeId, full_name)
             if not config:
                 print(f"WARNING: No payroll config found for {full_name}")
                 continue
@@ -271,19 +462,35 @@ class PayrollProcessingService:
                 continue
 
             # 1. Count Attendance from HR SYSTEM (Source of Truth)
-            from integrations.hr.adapter import get_hr_attendance_count, get_hr_approved_leaves
             from db.models import Holiday
-            
-            days_present_logs = await get_hr_attendance_count(employee.id, employee.employeeId, start_date, end_date)
-            approved_leaves = await get_hr_approved_leaves(employee.id, start_date, end_date)
+            attendance_logs = await get_synced_attendance_list(employee.employeeId, start_date, end_date)
+            attendance_dates = cls._attendance_dates_from_logs(attendance_logs)
+            hr_late_penalties = cls._calculate_hr_late_penalties(
+                attendance_logs,
+                float(getattr(config, "latePenaltyRate", 0) or 0),
+            )
+            late_penalty_rate = float(getattr(config, "latePenaltyRate", 0) or 0)
+            late_penalty_items = cls._build_late_penalty_items(attendance_logs, late_penalty_rate)
+            overtime_pay = await cls._calculate_synced_overtime_pay(
+                employee.employeeId,
+                start_date,
+                end_date,
+                config.basicSalary,
+            )
             
             # Fetch Holidays in this period
             holidays_coll = db["Holidays"]
             holiday_docs = await holidays_coll.find({"date": {"$gte": start_date, "$lte": end_date}}).to_list(None)
             holidays = [Holiday(**h) for h in holiday_docs]
+            holiday_dates = {holiday.date.date() for holiday in holidays}
+            approved_leave_dates = await get_synced_approved_leave_dates(employee.employeeId, start_date, end_date)
+            approved_work_leave_days = cls._count_payable_leave_days(approved_leave_dates, holiday_dates)
+            days_present_logs = len(attendance_dates)
+            daily_rate = round(float(config.basicSalary) / 26.0, 2)
+            worked_holiday_items = cls._build_worked_holiday_items(holidays, attendance_dates, daily_rate)
 
             # Total days present includes actual logs + approved paid leaves
-            days_present = days_present_logs + approved_leaves
+            days_present = days_present_logs + approved_work_leave_days
             expected_workdays = cls._count_weekdays(start_date, end_date)
 
             # 🛡️ ATTENDANCE REALITY GUARD
@@ -294,10 +501,12 @@ class PayrollProcessingService:
             # 2. Perform calculations
             breakdown = await CompensationService.calculate_payroll_breakdown(
                 config, 
-                employee.id,
                 expected_workdays=expected_workdays,
                 days_present=days_present,
-                holidays=holidays
+                holidays=holidays,
+                hr_late_penalties=hr_late_penalties,
+                overtime_pay=overtime_pay,
+                attendance_dates=attendance_dates,
             )
 
             # 🛡️ NEGATIVE PAY GUARD
@@ -310,10 +519,18 @@ class PayrollProcessingService:
                 employee_id=employee.id, employee_number=employee.employeeId,
                 full_name=full_name, department=employee.department,
                 **breakdown,
+                total_late_hours=round(sum(item["late_hours"] for item in late_penalty_items), 2),
+                late_penalty_rate=late_penalty_rate,
+                late_penalty_items=late_penalty_items,
+                worked_holiday_items=worked_holiday_items,
+                zero_net_reason=(
+                    "Take-home pay was reduced to 0.00 because total deductions and penalties exceeded gross pay for this period."
+                    if breakdown["gross_pay"] <= (breakdown["total_deductions"] + breakdown["total_penalties"])
+                    else None
+                ),
                 pay_period_start=start_date, pay_period_end=end_date,
                 days_worked=expected_workdays,
                 days_present=days_present,
-                days_absent=max(0, expected_workdays - days_present)
             )
 
             try:

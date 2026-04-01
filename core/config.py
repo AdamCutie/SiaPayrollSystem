@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
 
+    # --- HR Sync ---
+    AUTO_SYNC_HR: bool = False
+    AUTO_SYNC_INTERVAL_MINUTES: int = 15
+
     # --- Pydantic Settings Configuration ---
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
