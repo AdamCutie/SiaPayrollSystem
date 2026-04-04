@@ -16,6 +16,7 @@ from modules.leaves.router import router as leave_router
 from modules.holidays.router import router as holiday_router
 from modules.departments.router import router as department_router
 from modules.sync.router import router as sync_router
+from modules.activity_logs.router import router as activity_logs_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -85,6 +86,7 @@ app.include_router(holiday_router, prefix="/payroll")
 # Departments (Horizontal Cards)
 app.include_router(department_router, prefix="/payroll")
 app.include_router(sync_router, prefix="/payroll")
+app.include_router(activity_logs_router, prefix="/payroll")
 
 @app.get("/", tags=["Health"])
 async def health_check():

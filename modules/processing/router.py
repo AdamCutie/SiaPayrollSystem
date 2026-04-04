@@ -4,7 +4,8 @@ from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
 
-from core.auth import require_admin
+from core.auth import CurrentUser, get_current_user, require_admin
+from modules.activity_logs.service import ActivityLogService
 from .service import PayrollProcessingService
 from db.models import PayrollSnapshot
 import io
@@ -61,19 +62,45 @@ async def get_payroll_readiness():
     return await PayrollProcessingService.get_payroll_readiness()
 
 @router.post("/run")
-async def run_payroll(request: PayrollRunRequest):
+async def run_payroll(request: PayrollRunRequest, user: CurrentUser = Depends(get_current_user)):
     try:
         count = await PayrollProcessingService.run_full_payroll(request.start_date, request.end_date)
+        await ActivityLogService.log_local_activity(
+            module="Payroll",
+            action="Ran payroll for all active employees",
+            target_info=f"{request.start_date.date()} to {request.end_date.date()} | Processed {count} employees",
+            user=user,
+            metadata={
+                "start_date": request.start_date.isoformat(),
+                "end_date": request.end_date.isoformat(),
+                "processed_count": count,
+                "mode": "full",
+            },
+        )
         return {"status": "success", "processed_count": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/run-selective")
-async def run_selective_payroll(request: SelectivePayrollRequest):
+async def run_selective_payroll(request: SelectivePayrollRequest, user: CurrentUser = Depends(get_current_user)):
     """Endpoint for Figma Payroll Wizard Step 2."""
     try:
         count = await PayrollProcessingService.run_selective_payroll(
             request.start_date, request.end_date, request.employee_ids
+        )
+        await ActivityLogService.log_local_activity(
+            module="Payroll",
+            action="Ran payroll for selected employees",
+            target_info=f"{request.start_date.date()} to {request.end_date.date()} | Processed {count} of {len(request.employee_ids)} selected employees",
+            user=user,
+            metadata={
+                "start_date": request.start_date.isoformat(),
+                "end_date": request.end_date.isoformat(),
+                "processed_count": count,
+                "selected_count": len(request.employee_ids),
+                "employee_ids": request.employee_ids,
+                "mode": "selective",
+            },
         )
         return {"status": "success", "processed_count": count}
     except Exception as e:
@@ -85,12 +112,19 @@ async def get_payroll_history(department: Optional[str] = Query(None)):
     return await PayrollProcessingService.get_payroll_history(department)
 
 @router.get("/export/csv")
-async def export_payroll_csv():
+async def export_payroll_csv(user: CurrentUser = Depends(get_current_user)):
     """
     Powers the 'DOWNLOAD' button in Figma.
     Generates a CSV of all payroll snapshots.
     """
     history = await PayrollProcessingService.get_payroll_history()
+    await ActivityLogService.log_local_activity(
+        module="Payroll",
+        action="Exported payroll history CSV",
+        target_info=f"Exported {len(history)} payroll snapshot rows",
+        user=user,
+        metadata={"rows": len(history), "format": "csv"},
+    )
     
     output = io.StringIO()
     writer = csv.writer(output)
