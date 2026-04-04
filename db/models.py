@@ -122,3 +122,26 @@ class AuthUser(BaseModel):
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ActivityLog(BaseModel):
+    """
+    Local payroll activity log entry stored in OUR database.
+    HR logs remain read-only in the HR database and are normalized at read time.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+
+    source: str = "payroll"
+    module: str
+    action: str
+    targetInfo: str = ""
+    actorName: str = "System"
+    actorEmail: Optional[str] = None
+    actorEmployeeId: Optional[str] = None
+    actorRole: Optional[str] = None
+    visibility: str = "HR & Payroll"
+    metadata: dict = Field(default_factory=dict)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

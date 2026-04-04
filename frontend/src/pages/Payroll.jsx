@@ -29,6 +29,19 @@ const Payroll = () => {
   const [selectedPayslip, setSelectedPayslip] = useState(null);
   const [showPayslipModal, setShowPayslipModal] = useState(false);
 
+  const trackActivity = async (action, targetInfo, metadata = {}) => {
+    try {
+      await axios.post('http://localhost:8000/payroll/activity-logs/track', {
+        module: 'Payroll',
+        action,
+        target_info: targetInfo,
+        metadata
+      });
+    } catch (err) {
+      console.error('Failed to track activity log', err);
+    }
+  };
+
   useEffect(() => {
     if (employees.length === 0) {
       fetchEmployees();
@@ -137,6 +150,15 @@ const Payroll = () => {
   const handleViewPayslip = (record) => {
     setSelectedPayslip(record);
     setShowPayslipModal(true);
+    trackActivity(
+      'Viewed payslip',
+      `${record.employee_number} | ${record.full_name}`,
+      {
+        payslip_id: record._id,
+        pay_period_start: record.pay_period_start,
+        pay_period_end: record.pay_period_end
+      }
+    );
   };
 
   const filteredEmployees = employees.filter(emp => 
@@ -831,7 +853,25 @@ const Payroll = () => {
             </div>
           )}
           <div className="mt-5 text-center d-print-none">
-            <Button variant="outline-secondary" className="rounded-pill px-4 me-2" onClick={() => window.print()}>
+            <Button
+              variant="outline-secondary"
+              className="rounded-pill px-4 me-2"
+              onClick={async () => {
+                if (selectedPayslip) {
+                  await trackActivity(
+                    'Downloaded payslip',
+                    `${selectedPayslip.employee_number} | ${selectedPayslip.full_name}`,
+                    {
+                      payslip_id: selectedPayslip._id,
+                      pay_period_start: selectedPayslip.pay_period_start,
+                      pay_period_end: selectedPayslip.pay_period_end,
+                      format: 'print'
+                    }
+                  );
+                }
+                window.print();
+              }}
+            >
               <Download size={18} className="me-2" /> Print PDF
             </Button>
           </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, CreditCard, Calendar, Settings, CheckCircle } from 'lucide-react';
+import { LayoutDashboard, Users, CreditCard, Calendar, Settings, CheckCircle, ClipboardList } from 'lucide-react';
 
 const Sidebar = () => {
   return (
@@ -46,6 +46,12 @@ const Sidebar = () => {
           className={({ isActive }) => `nav-link-sia ${isActive ? 'active' : ''}`}
         >
           <CheckCircle size={20}/> Monitoring
+        </NavLink>
+        <NavLink
+          to="/activity-logs"
+          className={({ isActive }) => `nav-link-sia ${isActive ? 'active' : ''}`}
+        >
+          <ClipboardList size={20}/> Activity logs
         </NavLink>
         <NavLink
           to="/settings"

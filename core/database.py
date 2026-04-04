@@ -66,6 +66,10 @@ async def ensure_db_indexes() -> None:
             unique=True,
             name="uniq_scope",
         )
+        await db["ActivityLogs"].create_index(
+            [("timestamp", -1), ("module", 1)],
+            name="idx_activity_logs_timestamp_module",
+        )
     except OperationFailure as e:
         # Common cause: existing duplicate records prevent creating a unique index.
         print(f"WARNING: Could not create unique index on PayrollSnapshots: {e}")

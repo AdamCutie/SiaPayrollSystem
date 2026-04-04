@@ -9,6 +9,7 @@ from bson import Decimal128, ObjectId
 
 from core.config import settings
 from core.database import db, hr_db
+from modules.activity_logs.service import ActivityLogService
 
 
 SYNC_TARGETS = {
@@ -188,6 +189,19 @@ class HRSyncService:
             {"$set": {**summary, "scope": cls.STATUS_SCOPE}},
             upsert=True,
         )
+        if status == "success":
+            await ActivityLogService.log_local_activity(
+                module="Synchronization",
+                action="Completed HR synchronization",
+                target_info=", ".join(sync_targets),
+                actor_name="System",
+                metadata={
+                    "mode": mode,
+                    "targets": sync_targets,
+                    "results": results,
+                    "completed_at": summary["completed_at"].isoformat(),
+                },
+            )
         if error:
             raise RuntimeError(error)
         return summary

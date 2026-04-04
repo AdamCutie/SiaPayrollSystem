@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from core.auth import CurrentUser, get_current_user, require_admin, require_user
 from core.database import db
+from modules.activity_logs.service import ActivityLogService
 from integrations.hr.adapter import (
     get_synced_active_employees,
     get_synced_employee_by_id,
@@ -67,7 +68,8 @@ async def get_payroll_configuration(employee_id: str, _: object = Depends(requir
 async def update_payroll_configuration(
     employee_id: str, 
     update_data: HRPayrollConfigUpdate,
-    _: object = Depends(require_admin)
+    _: object = Depends(require_admin),
+    user: CurrentUser = Depends(get_current_user)
 ):
     """
     Saves a payroll configuration override to OUR database.
@@ -77,6 +79,15 @@ async def update_payroll_configuration(
         from integrations.hr.adapter import update_payroll_config_override
         success = await update_payroll_config_override(employee_id, update_data)
         if success:
+            employee = await get_synced_employee_by_id(employee_id)
+            employee_label = employee.employeeId if employee else employee_id
+            await ActivityLogService.log_local_activity(
+                module="Payroll Configuration",
+                action="Updated payroll configuration override",
+                target_info=f"Employee {employee_label}",
+                user=user,
+                metadata=update_data.model_dump(exclude_unset=True),
+            )
             return {"status": "success", "message": "Payroll manipulation saved to local DB."}
         else:
             return {"status": "no_change", "message": "No changes were saved."}
