@@ -45,6 +45,7 @@ class PayrollSnapshot(BaseModel):
     total_loans: float = 0.0
     total_penalties: float = 0.0
     total_deductions: float
+    undertime_deduction: float = 0.0
 
     total_late_hours: float = 0.0
     late_penalty_rate: float = 0.0
@@ -61,7 +62,8 @@ class PayrollSnapshot(BaseModel):
     pay_period_start: datetime
     pay_period_end: datetime
     processed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    status: str = "Completed"
+    status: str = "Pending" # Approved, Rejected, Pending
+    remarks: Optional[str] = None # Added for Finance notes
 
 class AttendanceLog(BaseModel):
     """
@@ -145,3 +147,25 @@ class ActivityLog(BaseModel):
     visibility: str = "HR & Payroll"
     metadata: dict = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PayrollSchedule(BaseModel):
+    """
+    Stores the pre-calculated 24 cycles of the year.
+    Used by the background runner to automate payroll.
+    """
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    year: int
+    cycle_name: str # e.g. "January - First Half"
+    period_start: datetime
+    period_end: datetime
+    cutoff_date: datetime
+    pay_date: datetime
+    
+    is_processed: bool = False
+    automation_on: bool = False # The ON/OFF toggle
+    processed_at: Optional[datetime] = None
+    snapshot_count: int = 0
+
