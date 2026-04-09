@@ -39,8 +39,9 @@ async def get_dashboard_overview():
     
     # 2. Fetch Financial Totals from Our New Payroll Snapshots
     payroll_coll = db["PayrollSnapshots"]
-    # MongoDB Aggregation to sum up all net_pays from past runs
+    # MongoDB Aggregation to sum up all net_pays from past APPROVED runs
     pipeline = [
+        {"$match": {"status": "Approved"}},
         {"$group": {
             "_id": None, 
             "total": {"$sum": "$net_pay"}, 
@@ -53,7 +54,7 @@ async def get_dashboard_overview():
     avg_salary = payout_data[0]["avg"] if payout_data else 0.0
 
     delayed_pipeline = [
-        {"$match": {"status": {"$ne": "Completed"}}},
+        {"$match": {"status": "Pending"}},
         {"$group": {"_id": None, "total": {"$sum": "$net_pay"}}},
     ]
     delayed_data = await payroll_coll.aggregate(delayed_pipeline).to_list(1)
@@ -64,6 +65,24 @@ async def get_dashboard_overview():
     approvals_approved = 0
     approvals_pending = 0
     approvals_rejected = 0
+
+    # 3c. Payroll Snapshots (New: Pending/Approved/Rejected)
+    p_total = await payroll_coll.count_documents({})
+    p_app = await payroll_coll.count_documents({"status": "Approved"})
+    p_pen = await payroll_coll.count_documents({"status": "Pending"})
+    p_rej = await payroll_coll.count_documents({"status": "Rejected"})
+
+    approvals_requested += p_total
+    approvals_approved += p_app
+    approvals_pending += p_pen
+    approvals_rejected += p_rej
+
+    # 3d. Undertime Records
+    ut_coll = db["SyncedHRUndertimeRecords"]
+    ut_total = await ut_coll.count_documents({})
+    # Assuming synced means detected for now
+    approvals_requested += ut_total
+    approvals_pending += ut_total
 
     # 3a. Leaves from synced HR mirror
     hr_leave_coll = db["SyncedHRLeaves"]

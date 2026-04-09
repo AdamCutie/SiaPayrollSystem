@@ -1,8 +1,6 @@
 from typing import List, Optional
-
 from integrations.hr.schemas import HRPayrollConfigRead
 from modules.agencies.service import AgencyCalculator
-
 
 class CompensationService:
     """
@@ -24,7 +22,6 @@ class CompensationService:
         sss = AgencyCalculator.calculate_sss(config.basicSalary)
         philhealth = AgencyCalculator.calculate_philhealth(config.basicSalary)
         pagibig = AgencyCalculator.calculate_pagibig(config.basicSalary)
-
         statutory_total = sss + philhealth + pagibig
         gross = config.basicSalary + (
             config.housingAllowance
@@ -46,28 +43,24 @@ class CompensationService:
         holidays: List[object] = [],
         hr_late_penalties: float = 0.0,
         overtime_pay: float = 0.0,
+        undertime_deduction: float = 0.0,
         attendance_dates: Optional[set] = None,
+        late_hours: float = 0.0,
+        late_items: List[dict] = []
     ) -> dict:
         if days_present <= 0:
             return {
-                "basic_salary": 0.0,
-                "gross_pay": 0.0,
-                "net_pay": 0.0,
-                "housing_allowance": 0.0,
-                "transport_allowance": 0.0,
-                "meal_allowance": 0.0,
-                "other_allowances": 0.0,
-                "total_overtime": 0.0,
-                "excess_days_pay": 0.0,
-                "sss_deduction": 0.0,
-                "philhealth_deduction": 0.0,
-                "pagibig_deduction": 0.0,
-                "withholding_tax": 0.0,
-                "absence_deduction": 0.0,
-                "days_absent": 0,
-                "total_loans": 0.0,
-                "total_penalties": 0.0,
-                "total_deductions": 0.0,
+                "basic_salary": 0.0, "gross_pay": 0.0, "net_pay": 0.0,
+                "housing_allowance": 0.0, "transport_allowance": 0.0,
+                "meal_allowance": 0.0, "other_allowances": 0.0,
+                "total_overtime": 0.0, "excess_days_pay": 0.0,
+                "sss_deduction": 0.0, "philhealth_deduction": 0.0,
+                "pagibig_deduction": 0.0, "withholding_tax": 0.0,
+                "absence_deduction": 0.0, "days_absent": 0,
+                "total_loans": 0.0, "total_penalties": 0.0,
+                "total_deductions": 0.0, "undertime_deduction": 0.0,
+                "total_late_hours": 0.0, "late_penalty_rate": 0.0,
+                "late_penalty_items": [], "worked_holiday_items": []
             }
 
         standard_divisor = 26.0
@@ -81,15 +74,19 @@ class CompensationService:
         other = round(float(getattr(config, "otherAllowances", 0) or 0) * attendance_ratio, 2)
         total_allowances = housing + transport + meal + other
 
-        reg_holiday_pay = 0.0
-        special_holiday_pay = 0.0
+        reg_holiday_pay, special_holiday_pay = 0.0, 0.0
         attendance_dates = attendance_dates or set()
+        worked_holiday_items = []
+
         for holiday in holidays:
             holiday_day = holiday.date.date()
-            if holiday.type == "Regular Holiday" and holiday_day in attendance_dates:
-                reg_holiday_pay += daily_rate * 1.0
-            elif holiday.type == "Special Non-Working Day" and holiday_day in attendance_dates:
-                special_holiday_pay += daily_rate * 0.3
+            if holiday_day in attendance_dates:
+                if holiday.type == "Regular Holiday":
+                    reg_holiday_pay += daily_rate * 1.0
+                    worked_holiday_items.append({"date": holiday.date, "name": holiday.name, "type": "Regular"})
+                elif holiday.type == "Special Non-Working Day":
+                    special_holiday_pay += daily_rate * 0.3
+                    worked_holiday_items.append({"date": holiday.date, "name": holiday.name, "type": "Special"})
 
         total_overtime_logs = round(float(overtime_pay or 0), 2)
         excess_days = max(0, days_present - expected_workdays)
@@ -116,31 +113,29 @@ class CompensationService:
         taxable_income = max(0.0, gross_pay - statutory_total - absence_deduction)
         tax = AgencyCalculator.calculate_withholding_tax(taxable_income)
         total_loans = float(config.sssLoan or 0) + float(config.pagIbigLoan or 0) + float(config.companyLoan or 0)
-        total_penalties = round(float(hr_late_penalties or 0), 2)
+        
+        # Combined Penalties (Lateness + Undertime)
+        total_penalties = round(float(hr_late_penalties or 0) + float(undertime_deduction or 0), 2)
+        
         total_deductions = statutory_total + tax + total_loans + absence_deduction
         net_pay = gross_pay - (total_deductions + total_penalties)
 
         return {
-            "basic_salary": period_basic_salary,
-            "gross_pay": round(gross_pay, 2),
-            "net_pay": max(0.0, round(net_pay, 2)),
-            "housing_allowance": housing,
-            "transport_allowance": transport,
-            "meal_allowance": meal,
-            "other_allowances": other,
-            "total_overtime": round(total_overtime_logs, 2),
-            "excess_days_pay": excess_days_pay,
-            "holiday_pay": round(reg_holiday_pay, 2),
-            "special_day_pay": round(special_holiday_pay, 2),
-            "sss_deduction": sss,
-            "philhealth_deduction": philhealth,
-            "pagibig_deduction": pagibig,
-            "withholding_tax": tax,
-            "absence_deduction": absence_deduction,
-            "days_absent": days_absent,
-            "total_loans": total_loans,
-            "total_penalties": total_penalties,
+            "basic_salary": period_basic_salary, "gross_pay": round(gross_pay, 2),
+            "net_pay": max(0.0, round(net_pay, 2)), "housing_allowance": housing,
+            "transport_allowance": transport, "meal_allowance": meal,
+            "other_allowances": other, "total_overtime": round(total_overtime_logs, 2),
+            "excess_days_pay": excess_days_pay, "holiday_pay": round(reg_holiday_pay, 2),
+            "special_day_pay": round(special_holiday_pay, 2), "sss_deduction": sss,
+            "philhealth_deduction": philhealth, "pagibig_deduction": pagibig,
+            "withholding_tax": tax, "absence_deduction": absence_deduction,
+            "days_absent": days_absent, "total_loans": total_loans,
+            "total_penalties": total_penalties, "undertime_deduction": round(float(undertime_deduction or 0), 2),
             "total_deductions": round(total_deductions, 2),
+            "total_late_hours": round(late_hours, 2),
+            "late_penalty_rate": float(config.latePenaltyRate or 0),
+            "late_penalty_items": late_items,
+            "worked_holiday_items": worked_holiday_items
         }
 
     @classmethod

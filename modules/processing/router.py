@@ -7,7 +7,9 @@ from pydantic import BaseModel
 from core.auth import CurrentUser, get_current_user, require_admin
 from modules.activity_logs.service import ActivityLogService
 from .service import PayrollProcessingService
-from db.models import PayrollSnapshot
+from .scheduler import PayrollSchedulerService
+from db.models import PayrollSnapshot, PayrollSchedule
+from core.database import db
 import io
 import csv
 
@@ -25,6 +27,11 @@ class PayrollRunRequest(BaseModel):
 class SelectivePayrollRequest(PayrollRunRequest):
     """Schema for Figma Wizard Step 2: Selected Employees only."""
     employee_ids: List[str]
+
+class StatusUpdateRequest(BaseModel):
+    """Schema for updating a snapshot's status and remarks."""
+    status: str
+    remarks: Optional[str] = None
 
 class EmployeeReadiness(BaseModel):
     """Status of an employee's data before payroll processing."""
@@ -107,9 +114,67 @@ async def run_selective_payroll(request: SelectivePayrollRequest, user: CurrentU
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history", response_model=List[PayrollSnapshot])
-async def get_payroll_history(department: Optional[str] = Query(None)):
-    """Fetches history with optional department filter (Figma Sorter)."""
-    return await PayrollProcessingService.get_payroll_history(department)
+async def get_payroll_history(
+    department: Optional[str] = Query(None),
+    period: Optional[str] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None)
+):
+    """Fetches history with optional department and period filters."""
+    return await PayrollProcessingService.get_payroll_history(
+        department=department,
+        period=period,
+        start_date=start_date,
+        end_date=end_date
+    )
+
+@router.get("/schedule", response_model=List[PayrollSchedule])
+async def get_payroll_schedule(year: int = 2026):
+    """Fetches the 24 cycles for the given year."""
+    collection = db["PayrollSchedules"]
+    cursor = collection.find({"year": year}).sort("period_start", 1)
+    return [PayrollSchedule(**doc) async for doc in cursor]
+
+@router.patch("/schedule/automation")
+async def toggle_automation(enabled: bool, user: CurrentUser = Depends(get_current_user)):
+    """Toggles automation ON/OFF for all future cycles."""
+    collection = db["PayrollSchedules"]
+    await collection.update_many(
+        {"is_processed": False},
+        {"$set": {"automation_on": enabled}}
+    )
+    
+    await ActivityLogService.log_local_activity(
+        module="Payroll",
+        action=f"Automation toggled {'ON' if enabled else 'OFF'}",
+        user=user
+    )
+    return {"status": "success", "automation_on": enabled}
+
+@router.patch("/history/{snapshot_id}/status")
+async def update_snapshot_status(
+    snapshot_id: str, 
+    request: StatusUpdateRequest,
+    user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Update the status of a specific payroll record.
+    Used for Finance approvals/rejections.
+    """
+    success = await PayrollProcessingService.update_snapshot_status(
+        snapshot_id, request.status, request.remarks
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Payroll record not found or no changes made.")
+    
+    await ActivityLogService.log_local_activity(
+        module="Payroll",
+        action=f"Updated status to {request.status}",
+        target_info=f"Snapshot ID: {snapshot_id}",
+        user=user,
+        metadata={"status": request.status, "remarks": request.remarks}
+    )
+    return {"status": "success"}
 
 @router.get("/export/csv")
 async def export_payroll_csv(user: CurrentUser = Depends(get_current_user)):

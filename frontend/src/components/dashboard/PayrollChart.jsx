@@ -11,8 +11,10 @@ const PayrollChart = () => {
       try {
         const response = await axios.get('http://localhost:8000/payroll/processing/history');
         
-        // Group individual snapshots by date for the chart
+        // Group individual snapshots by date for the chart, ONLY for Approved ones
         const grouped = response.data.reduce((acc, curr) => {
+          if (curr.status !== 'Approved') return acc;
+          
           // Format date as '09 Mar'
           const date = new Date(curr.processed_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
           acc[date] = (acc[date] || 0) + curr.net_pay;

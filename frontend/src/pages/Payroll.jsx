@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Form, Button, Table, Badge, Spinner, Alert, Modal } from 'react-bootstrap';
 import axios from 'axios';
-import { Search, Check, Download, Settings, Users, FileText, Eye } from 'lucide-react';
+import { Search, Check, Download, Settings, Users, FileText, Eye, Calendar, Zap, ZapOff } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Payroll = () => {
-  const [view, setView] = useState('generation'); // 'generation', 'configuration', 'payslips'
+  const [view, setView] = useState('generation'); // 'generation', 'configuration', 'payslips', 'schedule'
   const [step, setStep] = useState(1); // Start at Step 1
   const [employees, setEmployees] = useState([]);
   const [readinessSummary, setReadinessSummary] = useState({ ready_count: 0, incomplete_count: 0 });
@@ -14,7 +14,7 @@ const Payroll = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [processedCount, setProcessedCount] = useState(0);
-  const [dateRange, setDateRange] = useState({ start: '2026-03-01', end: '2026-03-15' });
+  const [dateRange, setDateRange] = useState({ start: '2026-04-01', end: '2026-04-15' });
 
   // Configuration State
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,8 +26,14 @@ const Payroll = () => {
   const [payrollHistory, setPayrollHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [payslipSearch, setPayslipSearch] = useState('');
+  const [historyPeriod, setHistoryPeriod] = useState('today'); // 'all', 'today', 'yesterday'
   const [selectedPayslip, setSelectedPayslip] = useState(null);
   const [showPayslipModal, setShowPayslipModal] = useState(false);
+
+  // Automation Control State
+  const [schedule, setSchedule] = useState([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [isAutomationOn, setIsAutomationOn] = useState(false);
 
   const trackActivity = async (action, targetInfo, metadata = {}) => {
     try {
@@ -51,8 +57,10 @@ const Payroll = () => {
   useEffect(() => {
     if (view === 'payslips') {
       fetchHistory();
+    } else if (view === 'schedule') {
+      fetchSchedule();
     }
-  }, [view]);
+  }, [view, historyPeriod]);
 
   const fetchEmployees = async () => {
     try {
@@ -73,12 +81,42 @@ const Payroll = () => {
   const fetchHistory = async () => {
     try {
       setHistoryLoading(true);
-      const response = await axios.get('http://localhost:8000/payroll/processing/history');
+      let url = 'http://localhost:8000/payroll/processing/history';
+      if (historyPeriod !== 'all') {
+        url += `?period=${historyPeriod}`;
+      }
+      const response = await axios.get(url);
       setPayrollHistory(response.data);
       setHistoryLoading(false);
     } catch (err) {
       console.error("Failed to fetch history", err);
       setHistoryLoading(false);
+    }
+  };
+
+  const fetchSchedule = async () => {
+    try {
+      setScheduleLoading(true);
+      const response = await axios.get('http://localhost:8000/payroll/processing/schedule');
+      setSchedule(response.data);
+      // Determine if automation is on based on any unprocessed cycle
+      const anyAuto = response.data.some(s => !s.is_processed && s.automation_on);
+      setIsAutomationOn(anyAuto);
+      setScheduleLoading(false);
+    } catch (err) {
+      console.error("Failed to fetch schedule", err);
+      setScheduleLoading(false);
+    }
+  };
+
+  const handleToggleAutomation = async () => {
+    const newState = !isAutomationOn;
+    try {
+      await axios.patch(`http://localhost:8000/payroll/processing/schedule/automation?enabled=${newState}`);
+      setIsAutomationOn(newState);
+      fetchSchedule(); 
+    } catch (err) {
+      alert("Failed to update automation status.");
     }
   };
 
@@ -184,6 +222,24 @@ const Payroll = () => {
         style={{ fontSize: '10px' }}
       >
         {displayLabel}
+      </Badge>
+    );
+  };
+
+  const getStatusBadge = (status) => {
+    const colorMap = {
+      'Approved': 'success',
+      'Rejected': 'danger',
+      'Pending': 'warning'
+    };
+    const color = colorMap[status] || 'secondary';
+    return (
+      <Badge 
+        bg={`${color}-subtle`} 
+        className={`text-${color} border border-${color} px-3`}
+        style={{ fontSize: '11px', borderRadius: '50px' }}
+      >
+        {status?.toUpperCase() || 'PENDING'}
       </Badge>
     );
   };
@@ -590,6 +646,36 @@ const Payroll = () => {
         </div>
       </div>
 
+      <div className="bg-light p-1 rounded-pill d-inline-flex gap-1 mb-4 shadow-sm border">
+        <Button
+          variant={historyPeriod === 'today' ? 'secondary' : 'light'}
+          size="sm"
+          className="rounded-pill px-3 border-0"
+          onClick={() => setHistoryPeriod('today')}
+          style={{ fontSize: '12px', fontWeight: historyPeriod === 'today' ? '700' : 'normal' }}
+        >
+          Today
+        </Button>
+        <Button
+          variant={historyPeriod === 'yesterday' ? 'secondary' : 'light'}
+          size="sm"
+          className="rounded-pill px-3 border-0"
+          onClick={() => setHistoryPeriod('yesterday')}
+          style={{ fontSize: '12px', fontWeight: historyPeriod === 'yesterday' ? '700' : 'normal' }}
+        >
+          Yesterday
+        </Button>
+        <Button
+          variant={historyPeriod === 'all' ? 'secondary' : 'light'}
+          size="sm"
+          className="rounded-pill px-3 border-0"
+          onClick={() => setHistoryPeriod('all')}
+          style={{ fontSize: '12px', fontWeight: historyPeriod === 'all' ? '700' : 'normal' }}
+        >
+          All Time
+        </Button>
+      </div>
+
       <div className="table-responsive">
         <Table hover className="align-middle">
           <thead>
@@ -597,12 +683,13 @@ const Payroll = () => {
               <th>EMPLOYEE</th>
               <th>PERIOD</th>
               <th>NET PAY</th>
+              <th>STATUS</th>
               <th>PROCESSED AT</th>
               <th className="text-end">ACTION</th>
             </tr>
           </thead>
           <tbody>
-            {historyLoading ? <tr><td colSpan="5" className="text-center py-5"><Spinner /></td></tr> : 
+            {historyLoading ? <tr><td colSpan="6" className="text-center py-5"><Spinner /></td></tr> : 
              filteredHistory.map(record => (
               <tr key={record._id}>
                 <td>
@@ -616,6 +703,9 @@ const Payroll = () => {
                 </td>
                 <td className="fw-bold text-success">
                   ₱{record.net_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </td>
+                <td>
+                  {getStatusBadge(record.status)}
                 </td>
                 <td className="text-muted" style={{ fontSize: '13px' }}>
                   {new Date(record.processed_at).toLocaleString()}
@@ -776,8 +866,14 @@ const Payroll = () => {
                   </div>
                   <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
                     <span className="ps-2">Late Penalties</span>
-                    <span>-{formatMoney(selectedPayslip.total_penalties)}</span>
+                    <span>-{formatMoney(selectedPayslip.total_penalties - (selectedPayslip.undertime_deduction || 0))}</span>
                   </div>
+                  {selectedPayslip.undertime_deduction > 0 && (
+                    <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                      <span className="ps-2">Undertime Deduction</span>
+                      <span>-{formatMoney(selectedPayslip.undertime_deduction)}</span>
+                    </div>
+                  )}
                 </div>
 
                 {selectedPayslip.total_late_hours > 0 && (
@@ -880,6 +976,33 @@ const Payroll = () => {
     </div>
   );
 
+  const renderScheduleContent = () => (
+    <div>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h5 className="fw-bold mb-0" style={{ color: '#5A4343' }}>Payroll Schedule 2026</h5>
+        <Button variant={isAutomationOn ? "success" : "outline-secondary"} className="rounded-pill px-4 d-flex align-items-center gap-2 shadow-sm fw-bold" onClick={handleToggleAutomation}>
+          {isAutomationOn ? <Zap size={18} /> : <ZapOff size={18} />} Automation: {isAutomationOn ? "ON" : "OFF"}
+        </Button>
+      </div>
+      <div className="table-responsive">
+        <Table hover className="align-middle border-top">
+          <thead className="bg-light"><tr className="text-muted small" style={{ fontSize: '11px' }}><th>CYCLE</th><th>PERIOD</th><th>CUTOFF</th><th>PAY DATE</th><th>STATUS</th></tr></thead>
+          <tbody>
+            {schedule.map(s => (
+              <tr key={s._id} style={{ opacity: s.is_processed ? 0.6 : 1 }}>
+                <td className="fw-bold text-dark">{s.cycle_name}</td>
+                <td><small>{formatDateLabel(s.period_start)} - {formatDateLabel(s.period_end)}</small></td>
+                <td><Badge bg="light" className="text-dark border fw-normal">{formatDateLabel(s.cutoff_date)}</Badge></td>
+                <td><Badge bg="primary-subtle" className="text-primary border border-primary fw-normal">{formatDateLabel(s.pay_date)}</Badge></td>
+                <td><Badge bg={s.is_processed ? "success-subtle" : "warning-subtle"} className={s.is_processed ? "text-success border border-success px-3" : "text-warning border border-warning px-3"}>{s.is_processed ? "PROCESSED" : "WAITING"}</Badge></td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  );
+
   const WizardProgress = () => (
     <div className="bg-white p-4 rounded-4 shadow-sm mb-4 position-relative">
       <div className="d-flex justify-content-between align-items-center px-5">
@@ -904,63 +1027,23 @@ const Payroll = () => {
     <div className="main-content-sia">
       <TopBar title="Payroll Management" />
       <div className="d-flex gap-3 mb-4">
-        <Button 
-          className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" 
-          style={{ 
-            backgroundColor: view === 'generation' ? '#D29191' : '#FFFFFF', 
-            color: view === 'generation' ? 'white' : '#A08E8E',
-            height: '50px', 
-            fontWeight: '600' 
-          }}
-          onClick={() => setView('generation')}
-        >
-          <Users size={18} />
-          Payroll Generation
-        </Button>
-        <Button 
-          className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" 
-          style={{ 
-            backgroundColor: view === 'configuration' ? '#D29191' : '#FFFFFF', 
-            color: view === 'configuration' ? 'white' : '#A08E8E',
-            height: '50px', 
-            fontWeight: '600' 
-          }}
-          onClick={() => setView('configuration')}
-        >
-          <Settings size={18} />
-          Payroll Configuration
-        </Button>
-        <Button 
-          className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" 
-          style={{ 
-            backgroundColor: view === 'payslips' ? '#D29191' : '#FFFFFF', 
-            color: view === 'payslips' ? 'white' : '#A08E8E',
-            height: '50px', 
-            fontWeight: '600' 
-          }}
-          onClick={() => setView('payslips')}
-        >
-          <FileText size={18} />
-          Payslips
-        </Button>
+        <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'generation' ? '#D29191' : '#FFFFFF', color: view === 'generation' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('generation')}><Users size={18} />Generation</Button>
+        <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'schedule' ? '#D29191' : '#FFFFFF', color: view === 'schedule' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('schedule')}><Calendar size={18} />Schedule</Button>
+        <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'configuration' ? '#D29191' : '#FFFFFF', color: view === 'configuration' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('configuration')}><Settings size={18} />Configuration</Button>
+        <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'payslips' ? '#D29191' : '#FFFFFF', color: view === 'payslips' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('payslips')}><FileText size={18} />Payslips</Button>
       </div>
-
       {view === 'generation' && <WizardProgress />}
-
       <Card className="border-0 shadow-sm rounded-4 p-4">
         <Card.Body>
           {view === 'generation' ? renderGenerationContent() : 
+           view === 'schedule' ? renderScheduleContent() :
            view === 'configuration' ? renderConfigurationContent() : 
            renderPayslipsContent()}
         </Card.Body>
         {view === 'generation' && step < 4 && (
           <div className="d-flex justify-content-end gap-3 mt-5">
-            <Button variant="outline-secondary" className="rounded-pill px-5 border-0" style={{ fontWeight: '600' }} onClick={() => setStep(prev => Math.max(1, prev - 1))} disabled={step === 1 || isProcessing}>
-              Back
-            </Button>
-            <Button className="rounded-pill px-5 border-0 shadow-sm" style={{ backgroundColor: '#D29191', fontWeight: '600' }} onClick={step === 3 ? handleRunPayroll : () => setStep(prev => Math.min(4, prev + 1))} disabled={isProcessing}>
-              {isProcessing ? <Spinner as="span" animation="border" size="sm" role="status" aria-hidden="true" /> : (step === 3 ? 'Run Payroll' : 'Next Step')}
-            </Button>
+            <Button variant="outline-secondary" className="rounded-pill px-5 border-0" style={{ fontWeight: '600' }} onClick={() => setStep(prev => Math.max(1, prev - 1))} disabled={step === 1 || isProcessing}>Back</Button>
+            <Button className="rounded-pill px-5 border-0 shadow-sm" style={{ backgroundColor: '#D29191', fontWeight: '600' }} onClick={step === 3 ? handleRunPayroll : () => setStep(prev => Math.min(4, prev + 1))} disabled={isProcessing}>{isProcessing ? <Spinner animation="border" size="sm" /> : (step === 3 ? 'Run Payroll' : 'Next Step')}</Button>
           </div>
         )}
       </Card>

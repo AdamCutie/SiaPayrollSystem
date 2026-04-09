@@ -18,6 +18,7 @@ SYNC_TARGETS = {
     "attendance": ("Attendance", "SyncedHRAttendance"),
     "leaves": ("Leaves", "SyncedHRLeaves"),
     "overtime_requests": ("OvertimeRequests", "SyncedHROvertimeRequests"),
+    "undertime_records": ("UndertimeRecords", "SyncedHRUndertimeRecords"),
 }
 
 
@@ -129,7 +130,23 @@ class HRSyncService:
 
         async for doc in source_coll.find({}):
             sync_doc = cls._build_sync_doc(source_collection, doc)
-            existing = await target_coll.find_one({"source_id": sync_doc["source_id"]})
+            
+            # --- Logical Deduplication ---
+            # For attendance and undertime, we identify a record by Employee + Date, not just HR's internal ID.
+            if target_key == "attendance":
+                query = {
+                    "employee_number": sync_doc["employee_number"],
+                    "date": sync_doc["date"]
+                }
+            elif target_key == "undertime_records":
+                query = {
+                    "employee_number": sync_doc["employee_number"],
+                    "date": sync_doc["date"]
+                }
+            else:
+                query = {"source_id": sync_doc["source_id"]}
+
+            existing = await target_coll.find_one(query)
 
             if existing and existing.get("source_hash") == sync_doc["source_hash"]:
                 unchanged += 1
@@ -140,7 +157,7 @@ class HRSyncService:
                 continue
 
             result = await target_coll.update_one(
-                {"source_id": sync_doc["source_id"]},
+                query,
                 {"$set": sync_doc, "$setOnInsert": {"created_at": cls._utc_now()}},
                 upsert=True,
             )

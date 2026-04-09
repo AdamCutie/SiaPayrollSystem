@@ -25,17 +25,20 @@ async def get_leave_logs(
     employee_id: Optional[str] = Query(None),
     period: Optional[str] = Query(None),
     month: Optional[int] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
     _: object = Depends(require_admin),
 ):
     """
     Fetches leave records from the synced HR mirror in our payroll database.
     """
     try:
-        start_date = None
-        end_date = None
         now = datetime.now()
 
-        if month:
+        if start_date and end_date:
+            if end_date.hour == 0 and end_date.minute == 0:
+                end_date = end_date.replace(hour=23, minute=59, second=59)
+        elif month:
             start_date = datetime(now.year, month, 1, 0, 0, 0)
             if month == 12:
                 end_date = datetime(now.year, 12, 31, 23, 59, 59)
@@ -52,6 +55,9 @@ async def get_leave_logs(
             start_date = now - timedelta(days=7)
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif period == "all":
+            start_date = None
+            end_date = None
 
         employee_number = None
         if employee_id:

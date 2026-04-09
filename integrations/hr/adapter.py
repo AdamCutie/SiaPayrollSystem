@@ -19,6 +19,7 @@ SYNCED_HR_PAYROLL_CONFIG_COLLECTION = "SyncedHRPayrollConfigurations"
 SYNCED_HR_ATTENDANCE_COLLECTION = "SyncedHRAttendance"
 SYNCED_HR_LEAVES_COLLECTION = "SyncedHRLeaves"
 SYNCED_HR_OVERTIME_REQUESTS_COLLECTION = "SyncedHROvertimeRequests"
+SYNCED_HR_UNDERTIME_RECORDS_COLLECTION = "SyncedHRUndertimeRecords"
 
 async def get_hr_attendance_count(
     employee_id_str: str, 
@@ -549,14 +550,21 @@ async def get_synced_employee_payroll_config(
         payload = employee_doc.get("payload", {})
         base_salary = payload.get("baseSalary", 0)
         if base_salary and float(base_salary) > 0:
+            salary = float(base_salary)
+            # Default penalty rates: Daily rate and Hourly rate
+            daily_rate = round(salary / 26.0, 2)
+            hourly_rate = round(daily_rate / 8.0, 2)
+
             return HRPayrollConfigRead(
                 id=payload.get("_id"),
                 employeeId=payload.get("employeeId"),
-                basicSalary=base_salary,
+                basicSalary=salary,
                 housingAllowance=0.0,
                 transportAllowance=0.0,
                 mealAllowance=0.0,
                 otherAllowances=0.0,
+                absencePenaltyRate=daily_rate,
+                latePenaltyRate=hourly_rate
             )
 
     return None
@@ -609,8 +617,8 @@ async def get_hr_overtime_requests(
 
 async def get_synced_attendance_list(
     employee_number: Optional[str],
-    start_date: datetime,
-    end_date: datetime,
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
 ) -> List[dict]:
     collection = db[SYNCED_HR_ATTENDANCE_COLLECTION]
     query = {}
@@ -633,11 +641,16 @@ async def get_synced_attendance_list(
         parsed_date = _parse_hr_datetime(payload.get("date"))
         if not parsed_date:
             continue
-        if start_date <= parsed_date <= end_date:
-            employee_no = str(payload.get("employeeId", "")).strip()
-            if employee_no and "employeeName" not in payload:
-                payload["employeeName"] = name_map.get(employee_no, f"Unknown ({employee_no})")
-            records.append(payload)
+            
+        # Date filtering: Only apply if both dates are provided
+        if start_date and end_date:
+            if not (start_date <= parsed_date <= end_date):
+                continue
+                
+        employee_no = str(payload.get("employeeId", "")).strip()
+        if employee_no and "employeeName" not in payload:
+            payload["employeeName"] = name_map.get(employee_no, f"Unknown ({employee_no})")
+        records.append(payload)
 
     records.sort(key=lambda item: item.get("date") or "", reverse=True)
     return records
@@ -669,6 +682,8 @@ async def get_synced_leave_list(
 
         start_dt = _parse_hr_datetime(payload.get("startDate"))
         end_dt = _parse_hr_datetime(payload.get("endDate"))
+        
+        # Date filtering: Only apply if both are provided
         if start_date and end_date:
             if not start_dt or not end_dt:
                 continue
@@ -732,6 +747,45 @@ async def get_synced_overtime_requests(
         payload["_id"] = str(payload.get("_id", doc.get("source_id")))
 
         parsed_date = _parse_hr_datetime(payload.get("date"))
+        
+        # Date filtering
+        if start_date and end_date:
+            if not parsed_date or parsed_date < start_date or parsed_date > end_date:
+                continue
+
+        employee_no = str(payload.get("employeeId") or payload.get("employeeNumber") or "").strip()
+        if employee_no and "fullName" not in payload:
+            payload["fullName"] = name_map.get(employee_no, f"Unknown ({employee_no})")
+        results.append(payload)
+
+    results.sort(key=lambda item: item.get("date") or "", reverse=True)
+    return results
+
+
+async def get_synced_undertime_records(
+    employee_number: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> List[dict]:
+    collection = db[SYNCED_HR_UNDERTIME_RECORDS_COLLECTION]
+    query = {}
+    if employee_number:
+        query["employee_number"] = employee_number
+
+    docs = await collection.find(query).to_list(length=None)
+    employee_numbers = {
+        str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
+        for doc in docs
+    }
+    name_map = await _get_synced_employee_name_map(employee_numbers)
+    results = []
+    for doc in docs:
+        payload = doc.get("payload", {})
+        payload["_id"] = str(payload.get("_id", doc.get("source_id")))
+
+        parsed_date = _parse_hr_datetime(payload.get("date"))
+        
+        # Date filtering
         if start_date and end_date:
             if not parsed_date or parsed_date < start_date or parsed_date > end_date:
                 continue

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from core.config import settings
 from core.database import check_db_connection, close_db_connection, ensure_db_indexes
 from modules.sync.service import HRSyncService
+from modules.processing.scheduler import PayrollSchedulerService
 
 # --- Import Module Routers ---
 from modules.auth.router import router as auth_router
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
         print("[OK] MongoDB Connection: SUCCESS.")
         await ensure_db_indexes()
         await HRSyncService.start_auto_sync()
+        await PayrollSchedulerService.start_automation_runner()
     else:
         print("[ERROR] MongoDB Connection: FAILED. Check your .env configuration.")
 
@@ -40,6 +42,7 @@ async def lifespan(app: FastAPI):
     # --- Shutdown Logic ---
     print("--- Shutting down SiaPayrollSystem ---")
     await HRSyncService.stop_auto_sync()
+    await PayrollSchedulerService.stop_automation_runner()
     close_db_connection()
 
 # Initialize the FastAPI Application
