@@ -62,7 +62,7 @@ class PayrollSnapshot(BaseModel):
     pay_period_start: datetime
     pay_period_end: datetime
     processed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    status: str = "Pending" # Approved, Rejected, Pending
+    status: str = "Pending" # Approved, Rejected, Pending, Completed, Delayed
     remarks: Optional[str] = None # Added for Finance notes
 
 class AttendanceLog(BaseModel):

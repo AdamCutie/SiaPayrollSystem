@@ -167,6 +167,15 @@ class PayrollProcessingService:
         return round(total_hours * hourly_rate, 2)
 
     @classmethod
+    async def run_full_payroll(cls, start_date: datetime, end_date: datetime) -> int:
+        """
+        Processes payroll for ALL active employees.
+        """
+        employees = await get_synced_active_employees()
+        employee_ids = [str(emp.id) for emp in employees]
+        return await cls.run_selective_payroll(start_date, end_date, employee_ids)
+
+    @classmethod
     async def run_selective_payroll(cls, start_date: datetime, end_date: datetime, employee_ids: List[str]) -> int:
         collection = db["PayrollSnapshots"]
         processed_count = 0
