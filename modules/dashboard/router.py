@@ -39,9 +39,9 @@ async def get_dashboard_overview():
     
     # 2. Fetch Financial Totals from Our New Payroll Snapshots
     payroll_coll = db["PayrollSnapshots"]
-    # MongoDB Aggregation to sum up all net_pays from past APPROVED runs
+    # MongoDB Aggregation to sum up all net_pays from past APPROVED or COMPLETED runs
     pipeline = [
-        {"$match": {"status": "Approved"}},
+        {"$match": {"status": {"$regex": "^(Approved|Completed)$", "$options": "i"}}},
         {"$group": {
             "_id": None, 
             "total": {"$sum": "$net_pay"}, 
@@ -54,7 +54,7 @@ async def get_dashboard_overview():
     avg_salary = payout_data[0]["avg"] if payout_data else 0.0
 
     delayed_pipeline = [
-        {"$match": {"status": "Pending"}},
+        {"$match": {"status": {"$regex": "^(Pending|Delayed)$", "$options": "i"}}},
         {"$group": {"_id": None, "total": {"$sum": "$net_pay"}}},
     ]
     delayed_data = await payroll_coll.aggregate(delayed_pipeline).to_list(1)
@@ -68,9 +68,9 @@ async def get_dashboard_overview():
 
     # 3c. Payroll Snapshots (New: Pending/Approved/Rejected)
     p_total = await payroll_coll.count_documents({})
-    p_app = await payroll_coll.count_documents({"status": "Approved"})
-    p_pen = await payroll_coll.count_documents({"status": "Pending"})
-    p_rej = await payroll_coll.count_documents({"status": "Rejected"})
+    p_app = await payroll_coll.count_documents({"status": {"$regex": "^(Approved|Completed)$", "$options": "i"}})
+    p_pen = await payroll_coll.count_documents({"status": {"$regex": "^(Pending|Delayed)$", "$options": "i"}})
+    p_rej = await payroll_coll.count_documents({"status": {"$regex": "^(Rejected)$", "$options": "i"}})
 
     approvals_requested += p_total
     approvals_approved += p_app
