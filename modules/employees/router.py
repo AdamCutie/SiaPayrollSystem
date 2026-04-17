@@ -46,19 +46,22 @@ async def get_payroll_configuration(employee_id: str, _: object = Depends(requir
         config = await get_synced_employee_payroll_config(employee.id, employee.employeeId, full_name)
         
         if config:
-            # If the database has 0.0, we show the calculated legal values in the UI
-            if config.sssContribution == 0:
-                config.sssContribution = AgencyCalculator.calculate_sss(config.basicSalary)
-            if config.philHealthContribution == 0:
-                config.philHealthContribution = AgencyCalculator.calculate_philhealth(config.basicSalary)
-            if config.pagIbigContribution == 0:
-                config.pagIbigContribution = AgencyCalculator.calculate_pagibig(config.basicSalary)
+            # Always recalculate statutory preview values in the UI from current law-based rules.
+            sss_breakdown = AgencyCalculator.calculate_sss_breakdown(config.basicSalary)
+            config.sssContribution = sss_breakdown["employee_total"]
+            config.sssEmployeeShare = sss_breakdown["employee_share"]
+            config.sssEmployerShare = sss_breakdown["employer_share"]
+            config.sssECEmployer = sss_breakdown["ec_employer"]
+            config.sssMPFEmployeeShare = sss_breakdown["mpf_employee_share"]
+            config.sssMPFEmployerShare = sss_breakdown["mpf_employer_share"]
+            config.sssMonthlySalaryCredit = sss_breakdown["monthly_salary_credit"]
+            config.philHealthContribution = AgencyCalculator.calculate_philhealth(config.basicSalary)
+            config.pagIbigContribution = AgencyCalculator.calculate_pagibig(config.basicSalary)
             
             # Estimate withholding tax for the UI (Gross - Statutory)
-            if config.withholdingTax == 0:
-                statutory = config.sssContribution + config.philHealthContribution + config.pagIbigContribution
-                taxable = max(0, config.basicSalary - statutory)
-                config.withholdingTax = AgencyCalculator.calculate_withholding_tax(taxable)
+            statutory = config.sssContribution + config.philHealthContribution + config.pagIbigContribution
+            taxable = max(0, config.basicSalary - statutory)
+            config.withholdingTax = AgencyCalculator.calculate_withholding_tax(taxable)
                 
         return config
     except Exception as e:

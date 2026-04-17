@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card } from 'react-bootstrap';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import axios from 'axios';
+
+const APPROVED_STATUSES = new Set(['approved', 'completed']);
+const DELAYED_STATUSES = new Set(['pending', 'delayed']);
 
 const PayrollChart = () => {
   const [chartData, setChartData] = useState([]);
@@ -10,28 +13,48 @@ const PayrollChart = () => {
     const fetchHistory = async () => {
       try {
         const response = await axios.get('http://localhost:8000/payroll/processing/history');
-        
-        // Group individual snapshots by date for the chart, ONLY for Approved ones
+
         const grouped = response.data.reduce((acc, curr) => {
-          if (curr.status !== 'Approved') return acc;
-          
-          // Format date as '09 Mar'
-          const date = new Date(curr.processed_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-          acc[date] = (acc[date] || 0) + curr.net_pay;
+          const normalizedStatus = String(curr.status || '').trim().toLowerCase();
+          if (!curr.processed_at) return acc;
+
+          const processedDate = new Date(curr.processed_at);
+          if (Number.isNaN(processedDate.getTime())) return acc;
+
+          const isoDay = processedDate.toISOString().slice(0, 10);
+          if (!acc[isoDay]) {
+            acc[isoDay] = {
+              isoDay,
+              label: processedDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+              totalPayout: 0,
+              delayedPayout: 0,
+            };
+          }
+
+          const netPay = Number(curr.net_pay || 0);
+          if (APPROVED_STATUSES.has(normalizedStatus)) {
+            acc[isoDay].totalPayout += netPay;
+          } else if (DELAYED_STATUSES.has(normalizedStatus)) {
+            acc[isoDay].delayedPayout += netPay;
+          }
           return acc;
         }, {});
 
-        // Convert grouped object to array format required by Recharts
-        const formattedData = Object.keys(grouped).map(key => ({
-          name: key,
-          value: grouped[key]
-        })).reverse().slice(-7); // Last 7 days of data
+        const formattedData = Object.values(grouped)
+          .sort((a, b) => a.isoDay.localeCompare(b.isoDay))
+          .slice(-7)
+          .map(({ label, totalPayout, delayedPayout }) => ({
+            name: label,
+            totalPayout: Number(totalPayout.toFixed(2)),
+            delayedPayout: Number(delayedPayout.toFixed(2)),
+          }));
 
         setChartData(formattedData);
       } catch (error) {
-        console.error("Error fetching chart data:", error);
+        console.error('Error fetching chart data:', error);
       }
     };
+
     fetchHistory();
   }, []);
 
@@ -43,28 +66,40 @@ const PayrollChart = () => {
           <ResponsiveContainer>
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-              <XAxis 
-                dataKey="name" 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{fill: '#999', fontSize: 11}} 
+              <Legend />
+              <XAxis
+                dataKey="name"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#999', fontSize: 11 }}
               />
-              <YAxis 
-                axisLine={false} 
-                tickLine={false} 
-                tick={{fill: '#999', fontSize: 11}}
-                tickFormatter={(value) => `₱${(value/1000).toFixed(0)}k`}
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#999', fontSize: 11 }}
+                tickFormatter={(value) => `PHP ${(value / 1000).toFixed(0)}k`}
               />
-              <Tooltip 
-                cursor={{fill: 'rgba(210, 145, 145, 0.05)'}}
+              <Tooltip
+                cursor={{ fill: 'rgba(210, 145, 145, 0.05)' }}
                 contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
-                formatter={(value) => [`₱${value.toLocaleString()}`, 'Total Payout']}
+                formatter={(value, name) => [
+                  `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                  name === 'totalPayout' ? 'Total Payout' : 'Delayed Payout',
+                ]}
               />
-              <Bar 
-                dataKey="value" 
-                fill="#4B8B8B" 
-                radius={[6, 6, 0, 0]} 
-                barSize={40} 
+              <Bar
+                dataKey="totalPayout"
+                fill="#4B8B8B"
+                radius={[6, 6, 0, 0]}
+                barSize={28}
+                name="Total Payout"
+              />
+              <Bar
+                dataKey="delayedPayout"
+                fill="#D29191"
+                radius={[6, 6, 0, 0]}
+                barSize={28}
+                name="Delayed Payout"
               />
             </BarChart>
           </ResponsiveContainer>

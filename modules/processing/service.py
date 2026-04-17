@@ -80,7 +80,8 @@ class PayrollProcessingService:
         
         for log in attendance_logs:
             raw_date = log.get("date")
-            if not raw_date: continue
+            if not raw_date:
+                raw_date = f"undated-{len(daily_max_lates)}"
             
             # Normalize date to YYYY-MM-DD
             date_str = raw_date.split("T")[0] if isinstance(raw_date, str) else raw_date.date().isoformat()
@@ -95,6 +96,14 @@ class PayrollProcessingService:
                     
         total_hours = sum(daily_max_lates.values())
         return round(total_hours * float(late_penalty_rate or 0), 2)
+
+    @staticmethod
+    def _count_payable_leave_days(approved_leave_dates: set, holiday_dates: set) -> int:
+        """
+        Counts paid leave days for the current six-day workweek setup.
+        Sundays and holidays are excluded.
+        """
+        return sum(1 for leave_day in approved_leave_dates if leave_day.weekday() != 6 and leave_day not in holiday_dates)
 
     @classmethod
     def _build_late_penalty_items(cls, attendance_logs: list[dict], late_penalty_rate: float) -> list[dict]:
@@ -237,6 +246,7 @@ class PayrollProcessingService:
             # 6. Final Breakdown
             breakdown = await CompensationService.calculate_payroll_breakdown(
                 config, expected_workdays=expected_workdays, days_present=days_present,
+                pay_period_start=start_date, pay_period_end=end_date,
                 holidays=holidays, hr_late_penalties=hr_late_penalties,
                 overtime_pay=overtime_pay, undertime_deduction=undertime_deduction,
                 attendance_dates=attendance_dates,

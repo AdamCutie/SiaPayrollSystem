@@ -38,6 +38,12 @@ class PayrollSnapshot(BaseModel):
 
     # 🚀 Itemized Deductions
     sss_deduction: float = 0.0
+    sss_employee_share: float = 0.0
+    sss_employer_share: float = 0.0
+    sss_ec_employer: float = 0.0
+    sss_mpf_employee_share: float = 0.0
+    sss_mpf_employer_share: float = 0.0
+    sss_monthly_salary_credit: float = 0.0
     philhealth_deduction: float = 0.0
     pagibig_deduction: float = 0.0
     withholding_tax: float = 0.0

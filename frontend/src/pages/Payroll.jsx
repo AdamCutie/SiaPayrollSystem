@@ -530,7 +530,7 @@ const Payroll = () => {
             <Row className="mb-3">
               <Col md={3}>
                 <Form.Group>
-                  <Form.Label className="small text-muted">SSS Contribution</Form.Label>
+                  <Form.Label className="small text-muted">SSS Contribution (EE, Monthly)</Form.Label>
                   <Form.Control type="text" value={formatCurrencyInput(configData.sssContribution)} readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
@@ -549,10 +549,35 @@ const Payroll = () => {
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">Withholding Tax</Form.Label>
-                  <Form.Control type="text" value={formatCurrencyInput(configData.withholdingTax)} readOnly className="bg-light text-muted" />
+                  <Form.Control type="text" value="Auto Computed" readOnly className="bg-light text-muted" />
                 </Form.Group>
               </Col>
             </Row>
+            {(configData.sssEmployeeShare > 0 || configData.sssMPFEmployeeShare > 0) && (
+              <div className="mt-2 mb-3 p-3 rounded-3 bg-light border">
+                <small className="d-block text-muted fw-bold mb-2">SSS 2025 Breakdown</small>
+                <Row>
+                  <Col md={4}>
+                    <small className="d-block text-muted">MSC</small>
+                    <span className="fw-bold">{formatCurrencyInput(configData.sssMonthlySalaryCredit)}</span>
+                  </Col>
+                  <Col md={4}>
+                    <small className="d-block text-muted">Regular SSS (EE)</small>
+                    <span className="fw-bold">{formatCurrencyInput(configData.sssEmployeeShare)}</span>
+                  </Col>
+                  <Col md={4}>
+                    <small className="d-block text-muted">MPF (EE)</small>
+                    <span className="fw-bold">{formatCurrencyInput(configData.sssMPFEmployeeShare)}</span>
+                  </Col>
+                </Row>
+                <small className="d-block text-muted mt-2">
+                  Employer-side amounts are tracked separately: Regular SSS, EC, and MPF employer shares are not deducted from employee pay.
+                </small>
+              </div>
+            )}
+            <small className="d-block text-muted mt-n2 mb-3">
+              Withholding tax is not shown as a fixed preview here because it depends on the actual taxable pay for the selected cutoff, including attendance, overtime, absences, and taxable allowances.
+            </small>
 
             {/* --- SECTION 3: LOANS & RATES --- */}
             <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger d-flex justify-content-between align-items-center">
@@ -840,6 +865,26 @@ const Payroll = () => {
                   <span className="text-muted">SSS Contribution</span>
                   <span>-{formatMoney(selectedPayslip.sss_deduction)}</span>
                 </div>
+                {(selectedPayslip.sss_employee_share > 0 || selectedPayslip.sss_mpf_employee_share > 0) && (
+                  <div className="mt-2 pt-2 border-top-dashed">
+                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>SSS Breakdown</small>
+                    <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                      <span className="ps-2">Regular SSS (EE)</span>
+                      <span>-{formatMoney(selectedPayslip.sss_employee_share)}</span>
+                    </div>
+                    {selectedPayslip.sss_mpf_employee_share > 0 && (
+                      <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
+                        <span className="ps-2">MPF (EE)</span>
+                        <span>-{formatMoney(selectedPayslip.sss_mpf_employee_share)}</span>
+                      </div>
+                    )}
+                    {(selectedPayslip.sss_employer_share > 0 || selectedPayslip.sss_mpf_employer_share > 0 || selectedPayslip.sss_ec_employer > 0) && (
+                      <small className="text-muted d-block mt-2 ps-2" style={{ fontSize: '10px' }}>
+                        Employer-side SSS/EC is tracked separately and not deducted from employee pay.
+                      </small>
+                    )}
+                  </div>
+                )}
                 <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
                   <span className="text-muted">PhilHealth</span>
                   <span>-{formatMoney(selectedPayslip.philhealth_deduction)}</span>

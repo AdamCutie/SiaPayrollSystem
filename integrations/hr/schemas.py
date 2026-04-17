@@ -42,6 +42,12 @@ class HRPayrollConfigRead(BaseModel):
     otherAllowances: Money = 0.0
 
     sssContribution: Money = 0.0
+    sssEmployeeShare: Money = 0.0
+    sssEmployerShare: Money = 0.0
+    sssECEmployer: Money = 0.0
+    sssMPFEmployeeShare: Money = 0.0
+    sssMPFEmployerShare: Money = 0.0
+    sssMonthlySalaryCredit: Money = 0.0
     philHealthContribution: Money = 0.0
     pagIbigContribution: Money = 0.0
     withholdingTax: Money = 0.0

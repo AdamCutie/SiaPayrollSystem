@@ -40,27 +40,88 @@ class AgencyCalculator:
     @staticmethod
     def calculate_sss(salary: float) -> float:
         """
-        Finds the SSS deduction based on Figma salary brackets.
-        (Simplified logic for teaching purposes based on 50k ceiling).
+        Returns the monthly employee-paid SSS deduction for employed members
+        under the January 2025 schedule.
         """
-        if salary <= 10000:
-            return 450.0 # Lowest bracket employee share
-        elif salary <= 20000:
-            return 900.0
-        elif salary <= 30000:
-            return 1350.0
-        elif salary <= 40000:
-            return 1800.0
+        breakdown = AgencyCalculator.calculate_sss_breakdown(salary)
+        return breakdown["employee_total"]
+
+    @staticmethod
+    def calculate_sss_breakdown(salary: float) -> dict[str, float]:
+        """
+        Computes the employed-member SSS breakdown effective January 1, 2025.
+
+        Rules:
+        - Compensation below 5,250 maps to 5,000 MSC.
+        - Compensation from 5,250 to 34,749.99 maps to MSC in 500 increments.
+        - Compensation from 34,750 and above maps to 35,000 MSC.
+        - Regular SS applies up to 20,000 MSC and is split 10% ER / 5% EE.
+        - MPF applies on MSC above 20,000 up to 35,000 and is also split 10% ER / 5% EE.
+        - EC is employer-only: 10 pesos for MSC 14,500 and below, otherwise 30 pesos.
+        """
+        salary = max(0.0, float(salary or 0.0))
+
+        if salary < 5250.0:
+            monthly_salary_credit = 5000.0
+        elif salary >= 34750.0:
+            monthly_salary_credit = 35000.0
         else:
-            return 2250.0 # Cap for 50,000 salary ceiling
+            monthly_salary_credit = 5500.0 + (int((salary - 5250.0) // 500.0) * 500.0)
+
+        regular_msc = min(monthly_salary_credit, 20000.0)
+        mpf_msc = max(monthly_salary_credit - 20000.0, 0.0)
+
+        employee_share = round(regular_msc * 0.05, 2)
+        employer_share = round(regular_msc * 0.10, 2)
+        mpf_employee_share = round(mpf_msc * 0.05, 2)
+        mpf_employer_share = round(mpf_msc * 0.10, 2)
+        ec_employer = 10.0 if monthly_salary_credit <= 14500.0 else 30.0
+
+        return {
+            "monthly_salary_credit": monthly_salary_credit,
+            "regular_msc": regular_msc,
+            "mpf_msc": mpf_msc,
+            "employee_share": employee_share,
+            "employer_share": employer_share,
+            "mpf_employee_share": mpf_employee_share,
+            "mpf_employer_share": mpf_employer_share,
+            "employee_total": round(employee_share + mpf_employee_share, 2),
+            "employer_total": round(employer_share + mpf_employer_share + ec_employer, 2),
+            "regular_total": round(employee_share + employer_share, 2),
+            "mpf_total": round(mpf_employee_share + mpf_employer_share, 2),
+            "ec_employer": ec_employer,
+            "overall_total": round(
+                employee_share + employer_share + mpf_employee_share + mpf_employer_share + ec_employer,
+                2,
+            ),
+        }
 
     @staticmethod
     def calculate_pagibig(salary: float) -> float:
         """
         Pag-IBIG (HDMF) Rules:
-        - Monthly Compensation Ceiling: 10,000
-        - Employee Share: 2% of basic salary
-        - Maximum Employee Contribution: 200.00
+        - Monthly compensation base is capped at 5,000
+        - Employee share is 1% for compensation up to 1,500
+        - Employee share is 2% for compensation above 1,500
+        - Maximum employee contribution is 100.00
         """
-        basis = min(salary, 10000.0)
-        return round(basis * 0.02, 2)
+        breakdown = AgencyCalculator.calculate_pagibig_breakdown(salary)
+        return breakdown["employee_share"]
+
+    @staticmethod
+    def calculate_pagibig_breakdown(salary: float) -> dict[str, float]:
+        """
+        Computes Pag-IBIG contribution shares for employed members.
+        """
+        salary = max(0.0, float(salary or 0.0))
+        basis = min(salary, 5000.0)
+        employee_rate = 0.01 if salary <= 1500.0 else 0.02
+        employee_share = round(basis * employee_rate, 2)
+        employer_share = round(basis * 0.02, 2)
+        return {
+            "basis": basis,
+            "employee_rate": employee_rate,
+            "employee_share": employee_share,
+            "employer_share": employer_share,
+            "overall_total": round(employee_share + employer_share, 2),
+        }

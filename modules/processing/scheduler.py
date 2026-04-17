@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Any
 from core.database import db
 from db.models import PayrollSchedule
+from modules.activity_logs.service import ActivityLogService
 from .service import PayrollProcessingService
 
 class PayrollSchedulerService:
@@ -12,6 +13,26 @@ class PayrollSchedulerService:
     """
     _task: Optional[asyncio.Task] = None
     _stop_event: Optional[asyncio.Event] = None
+
+    @staticmethod
+    def _current_day_start(now: Optional[datetime] = None) -> datetime:
+        current = now or datetime.now()
+        return current.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    @classmethod
+    async def _log_automation_event(
+        cls,
+        action: str,
+        *,
+        target_info: str = "",
+        metadata: Optional[dict] = None,
+    ) -> None:
+        await ActivityLogService.log_local_activity(
+            module="Payroll Automation",
+            action=action,
+            target_info=target_info,
+            metadata=metadata or {},
+        )
 
     @classmethod
     async def _automation_loop(cls):
@@ -37,6 +58,10 @@ class PayrollSchedulerService:
         cls._stop_event = asyncio.Event()
         cls._task = asyncio.create_task(cls._automation_loop())
         print("[OK] Automated Payroll Runner: STARTED.")
+        await cls._log_automation_event(
+            "Automation runner started",
+            metadata={"started_at": datetime.now().isoformat()},
+        )
 
     @classmethod
     async def stop_automation_runner(cls):
@@ -95,7 +120,7 @@ class PayrollSchedulerService:
             # --- SECOND HALF ---
             start2 = datetime(year, month, 14)
             last_day = calendar.monthrange(year, month)[1]
-            end2 = datetime(year, month, 28)
+            end2 = datetime(year, month, last_day)
             cutoff2 = cls.adjust_to_previous_working_day(end2.date(), holiday_dates)
             payday2 = cls.adjust_to_previous_working_day(datetime(year, month, last_day).date(), holiday_dates)
 
@@ -118,17 +143,29 @@ class PayrollSchedulerService:
     async def check_and_run_automated_payroll(cls):
         """
         This is the 'Brain' that runs in the background.
-        It checks if today is a cutoff date for an automated schedule.
+        It processes all due unprocessed automated schedules up to today.
         """
         collection = db["PayrollSchedules"]
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = cls._current_day_start()
         
-        # Find schedules that reach cutoff today, are automated, and not yet processed
+        # Catch up overdue schedules instead of only matching the exact cutoff day.
         active_schedules = await collection.find({
-            "cutoff_date": today,
+            "cutoff_date": {"$lte": today},
             "automation_on": True,
             "is_processed": False
-        }).to_list(None)
+        }).sort("cutoff_date", 1).to_list(None)
+
+        cycle_names = [sched["cycle_name"] for sched in active_schedules]
+        print(f"[AUTOMATION] Check on {today.date()}: found {len(active_schedules)} due cycle(s).")
+        await cls._log_automation_event(
+            "Automation check completed",
+            target_info=f"{len(active_schedules)} due cycle(s)",
+            metadata={
+                "checked_for_date": today.isoformat(),
+                "due_cycle_count": len(active_schedules),
+                "due_cycles": cycle_names,
+            },
+        )
 
         results = []
         for sched in active_schedules:
@@ -148,6 +185,17 @@ class PayrollSchedulerService:
                     "processed_at": datetime.now(),
                     "snapshot_count": count
                 }}
+            )
+            await cls._log_automation_event(
+                "Automated payroll processed",
+                target_info=sched["cycle_name"],
+                metadata={
+                    "cycle_name": sched["cycle_name"],
+                    "period_start": sched["period_start"].isoformat(),
+                    "period_end": sched["period_end"].isoformat(),
+                    "cutoff_date": sched["cutoff_date"].isoformat(),
+                    "processed_count": count,
+                },
             )
             results.append({"cycle": sched["cycle_name"], "processed": count})
             

@@ -116,6 +116,36 @@ class HRSyncService:
         }
 
     @classmethod
+    async def _archive_missing_employee_docs(cls, target_coll, active_source_ids: set[str]) -> int:
+        archive_time = cls._utc_now()
+        archive_filter = {
+            "$or": [
+                {"archived_in_hr": {"$ne": True}},
+                {"payload.isActive": True},
+            ]
+        }
+        if active_source_ids:
+            archive_filter["source_id"] = {"$nin": list(active_source_ids)}
+
+        result = await target_coll.update_many(
+            archive_filter,
+            {
+                "$set": {
+                    "archived_in_hr": True,
+                    "archived_reason": "missing_from_hr_sync",
+                    "archived_at": archive_time,
+                    "status": "archived",
+                    "last_synced_at": archive_time,
+                    "payload.isActive": False,
+                    "payload.archivedInPayroll": True,
+                    "payload.archivedAt": archive_time.isoformat(),
+                    "payload.archivedReason": "missing_from_hr_sync",
+                }
+            },
+        )
+        return result.modified_count
+
+    @classmethod
     async def _sync_target(cls, target_key: str) -> dict:
         if target_key not in SYNC_TARGETS:
             raise ValueError(f"Unsupported sync target: {target_key}")
@@ -127,9 +157,13 @@ class HRSyncService:
         inserted = 0
         updated = 0
         unchanged = 0
+        archived = 0
+        recovered = 0
+        source_ids_seen: set[str] = set()
 
         async for doc in source_coll.find({}):
             sync_doc = cls._build_sync_doc(source_collection, doc)
+            source_ids_seen.add(sync_doc["source_id"])
             
             # --- Logical Deduplication ---
             # For attendance and undertime, we identify a record by Employee + Date, not just HR's internal ID.
@@ -148,7 +182,7 @@ class HRSyncService:
 
             existing = await target_coll.find_one(query)
 
-            if existing and existing.get("source_hash") == sync_doc["source_hash"]:
+            if existing and existing.get("source_hash") == sync_doc["source_hash"] and not existing.get("archived_in_hr"):
                 unchanged += 1
                 await target_coll.update_one(
                     {"_id": existing["_id"]},
@@ -156,15 +190,31 @@ class HRSyncService:
                 )
                 continue
 
+            # Check if this record was previously archived
+            is_recovery = existing and existing.get("archived_in_hr")
+
             result = await target_coll.update_one(
                 query,
-                {"$set": sync_doc, "$setOnInsert": {"created_at": cls._utc_now()}},
+                {
+                    "$set": {**sync_doc, "archived_in_hr": False},
+                    "$unset": {
+                        "archived_reason": "",
+                        "archived_at": "",
+                    },
+                    "$setOnInsert": {"created_at": cls._utc_now()},
+                },
                 upsert=True,
             )
             if result.upserted_id:
                 inserted += 1
             else:
-                updated += 1
+                if is_recovery:
+                    recovered += 1
+                else:
+                    updated += 1
+
+        if target_key == "employees":
+            archived = await cls._archive_missing_employee_docs(target_coll, source_ids_seen)
 
         return {
             "target": target_key,
@@ -173,6 +223,8 @@ class HRSyncService:
             "inserted": inserted,
             "updated": updated,
             "unchanged": unchanged,
+            "archived": archived,
+            "recovered": recovered,
         }
 
     @classmethod
