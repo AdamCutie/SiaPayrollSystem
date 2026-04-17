@@ -360,14 +360,14 @@ async def get_synced_employee_by_id(employee_id_str: str) -> Optional[HREmployee
         return None
 
 
-async def _get_synced_employee_name_map(employee_numbers: set[str]) -> dict[str, str]:
+async def _get_synced_employee_info_map(employee_numbers: set[str]) -> dict[str, dict]:
     if not employee_numbers:
         return {}
 
     collection = db[SYNCED_HR_EMPLOYEES_COLLECTION]
     docs = await collection.find({"payload.employeeId": {"$in": list(employee_numbers)}}).to_list(length=None)
 
-    names: dict[str, str] = {}
+    info: dict[str, dict] = {}
     for doc in docs:
         payload = doc.get("payload", {})
         employee_number = str(payload.get("employeeId", "")).strip()
@@ -375,9 +375,13 @@ async def _get_synced_employee_name_map(employee_numbers: set[str]) -> dict[str,
             continue
         first_name = payload.get("firstName", "")
         last_name = payload.get("lastName", "")
-        names[employee_number] = f"{last_name}, {first_name}".strip(", ")
+        info[employee_number] = {
+            "name": f"{last_name}, {first_name}".strip(", "),
+            "department": payload.get("department", "N/A"),
+            "role": payload.get("role", "N/A")
+        }
 
-    return names
+    return info
 
 
 async def get_employee_by_email(email: str) -> Optional[HREmployeeRead]:
@@ -632,7 +636,7 @@ async def get_synced_attendance_list(
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
         for doc in docs
     }
-    name_map = await _get_synced_employee_name_map(employee_numbers)
+    info_map = await _get_synced_employee_info_map(employee_numbers)
 
     records = []
     for doc in docs:
@@ -648,8 +652,25 @@ async def get_synced_attendance_list(
                 continue
                 
         employee_no = str(payload.get("employeeId", "")).strip()
-        if employee_no and "employeeName" not in payload:
-            payload["employeeName"] = name_map.get(employee_no, f"Unknown ({employee_no})")
+        if employee_no:
+            info = info_map.get(employee_no)
+            if info:
+                # If name is generic or missing, use info map
+                if not payload.get("employeeName") or "Unknown" in payload.get("employeeName", ""):
+                    payload["employeeName"] = info["name"]
+                
+                # ALWAYS overwrite "all" or "N/A" or missing department/role with the specific one from employee mirror
+                current_dept = str(payload.get("department", "")).lower()
+                if not payload.get("department") or current_dept in ["all", "n/a", "none"]:
+                    payload["department"] = info["department"]
+                
+                current_role = str(payload.get("role", "")).lower()
+                if not payload.get("role") or current_role in ["all", "n/a", "none"]:
+                    payload["role"] = info["role"]
+            else:
+                if "employeeName" not in payload:
+                    payload["employeeName"] = f"Unknown ({employee_no})"
+
         records.append(payload)
 
     records.sort(key=lambda item: item.get("date") or "", reverse=True)
@@ -674,7 +695,7 @@ async def get_synced_leave_list(
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
         for doc in docs
     }
-    name_map = await _get_synced_employee_name_map(employee_numbers)
+    info_map = await _get_synced_employee_info_map(employee_numbers)
     results = []
     for doc in docs:
         payload = doc.get("payload", {})
@@ -691,8 +712,17 @@ async def get_synced_leave_list(
                 continue
 
         employee_no = str(payload.get("employeeId") or payload.get("employeeNumber") or "").strip()
-        if employee_no and "fullName" not in payload:
-            payload["fullName"] = name_map.get(employee_no, f"Unknown ({employee_no})")
+        if employee_no:
+            info = info_map.get(employee_no)
+            if info:
+                if "fullName" not in payload:
+                    payload["fullName"] = info["name"]
+                if "department" not in payload:
+                    payload["department"] = info["department"]
+            else:
+                if "fullName" not in payload:
+                    payload["fullName"] = f"Unknown ({employee_no})"
+
         results.append(payload)
 
     results.sort(key=lambda item: item.get("startDate") or "", reverse=True)
@@ -740,7 +770,7 @@ async def get_synced_overtime_requests(
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
         for doc in docs
     }
-    name_map = await _get_synced_employee_name_map(employee_numbers)
+    info_map = await _get_synced_employee_info_map(employee_numbers)
     results = []
     for doc in docs:
         payload = doc.get("payload", {})
@@ -754,8 +784,17 @@ async def get_synced_overtime_requests(
                 continue
 
         employee_no = str(payload.get("employeeId") or payload.get("employeeNumber") or "").strip()
-        if employee_no and "fullName" not in payload:
-            payload["fullName"] = name_map.get(employee_no, f"Unknown ({employee_no})")
+        if employee_no:
+            info = info_map.get(employee_no)
+            if info:
+                if "fullName" not in payload:
+                    payload["fullName"] = info["name"]
+                if "department" not in payload:
+                    payload["department"] = info["department"]
+            else:
+                if "fullName" not in payload:
+                    payload["fullName"] = f"Unknown ({employee_no})"
+
         results.append(payload)
 
     results.sort(key=lambda item: item.get("date") or "", reverse=True)
@@ -777,7 +816,7 @@ async def get_synced_undertime_records(
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
         for doc in docs
     }
-    name_map = await _get_synced_employee_name_map(employee_numbers)
+    info_map = await _get_synced_employee_info_map(employee_numbers)
     results = []
     for doc in docs:
         payload = doc.get("payload", {})
@@ -791,8 +830,17 @@ async def get_synced_undertime_records(
                 continue
 
         employee_no = str(payload.get("employeeId") or payload.get("employeeNumber") or "").strip()
-        if employee_no and "fullName" not in payload:
-            payload["fullName"] = name_map.get(employee_no, f"Unknown ({employee_no})")
+        if employee_no:
+            info = info_map.get(employee_no)
+            if info:
+                if "fullName" not in payload:
+                    payload["fullName"] = info["name"]
+                if "department" not in payload:
+                    payload["department"] = info["department"]
+            else:
+                if "fullName" not in payload:
+                    payload["fullName"] = f"Unknown ({employee_no})"
+
         results.append(payload)
 
     results.sort(key=lambda item: item.get("date") or "", reverse=True)

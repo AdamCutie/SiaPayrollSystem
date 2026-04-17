@@ -8,6 +8,23 @@ class CompensationService:
     """
 
     @staticmethod
+    def should_deduct_monthly_sss(pay_period_start, pay_period_end) -> bool:
+        """
+        Deduct SSS only on the first payroll cycle of the month.
+        This matches the current scheduler, where first-half periods start on day 1.
+        """
+        if pay_period_start is None or pay_period_end is None:
+            return True
+        return getattr(pay_period_start, "day", 0) <= 13 and getattr(pay_period_end, "month", None) == getattr(pay_period_start, "month", None)
+
+    @classmethod
+    def should_deduct_monthly_statutory(cls, pay_period_start, pay_period_end) -> bool:
+        """
+        Deduct monthly statutory contributions only on the first payroll cycle of the month.
+        """
+        return cls.should_deduct_monthly_sss(pay_period_start, pay_period_end)
+
+    @staticmethod
     def calculate_gross_pay(config: HRPayrollConfigRead) -> float:
         total_allowances = (
             config.housingAllowance
@@ -40,6 +57,8 @@ class CompensationService:
         config: HRPayrollConfigRead,
         expected_workdays: int,
         days_present: int,
+        pay_period_start=None,
+        pay_period_end=None,
         holidays: List[object] = [],
         hr_late_penalties: float = 0.0,
         overtime_pay: float = 0.0,
@@ -83,18 +102,28 @@ class CompensationService:
             if holiday_day in attendance_dates:
                 if holiday.type == "Regular Holiday":
                     reg_holiday_pay += daily_rate * 1.0
-                    worked_holiday_items.append({"date": holiday.date, "name": holiday.name, "type": "Regular"})
+                    worked_holiday_items.append({
+                        "date": holiday.date,
+                        "name": getattr(holiday, "name", "Regular Holiday"),
+                        "type": "Regular",
+                    })
                 elif holiday.type == "Special Non-Working Day":
                     special_holiday_pay += daily_rate * 0.3
-                    worked_holiday_items.append({"date": holiday.date, "name": holiday.name, "type": "Special"})
+                    worked_holiday_items.append({
+                        "date": holiday.date,
+                        "name": getattr(holiday, "name", "Special Non-Working Day"),
+                        "type": "Special",
+                    })
 
         total_overtime_logs = round(float(overtime_pay or 0), 2)
         excess_days = max(0, days_present - expected_workdays)
         excess_days_pay = round(daily_rate * excess_days, 2)
 
-        sss = AgencyCalculator.calculate_sss(config.basicSalary)
-        philhealth = AgencyCalculator.calculate_philhealth(config.basicSalary)
-        pagibig = AgencyCalculator.calculate_pagibig(config.basicSalary)
+        deduct_monthly_statutory = cls.should_deduct_monthly_statutory(pay_period_start, pay_period_end)
+        sss_breakdown = AgencyCalculator.calculate_sss_breakdown(config.basicSalary)
+        sss = sss_breakdown["employee_total"] if deduct_monthly_statutory else 0.0
+        philhealth = AgencyCalculator.calculate_philhealth(config.basicSalary) if deduct_monthly_statutory else 0.0
+        pagibig = AgencyCalculator.calculate_pagibig(config.basicSalary) if deduct_monthly_statutory else 0.0
         statutory_total = sss + philhealth + pagibig
 
         reg_holiday_count = sum(1 for holiday in holidays if holiday.type == "Regular Holiday")
@@ -127,13 +156,19 @@ class CompensationService:
             "other_allowances": other, "total_overtime": round(total_overtime_logs, 2),
             "excess_days_pay": excess_days_pay, "holiday_pay": round(reg_holiday_pay, 2),
             "special_day_pay": round(special_holiday_pay, 2), "sss_deduction": sss,
+            "sss_employee_share": sss_breakdown["employee_share"] if deduct_monthly_statutory else 0.0,
+            "sss_employer_share": sss_breakdown["employer_share"] if deduct_monthly_statutory else 0.0,
+            "sss_ec_employer": sss_breakdown["ec_employer"] if deduct_monthly_statutory else 0.0,
+            "sss_mpf_employee_share": sss_breakdown["mpf_employee_share"] if deduct_monthly_statutory else 0.0,
+            "sss_mpf_employer_share": sss_breakdown["mpf_employer_share"] if deduct_monthly_statutory else 0.0,
+            "sss_monthly_salary_credit": sss_breakdown["monthly_salary_credit"] if deduct_monthly_statutory else 0.0,
             "philhealth_deduction": philhealth, "pagibig_deduction": pagibig,
             "withholding_tax": tax, "absence_deduction": absence_deduction,
             "days_absent": days_absent, "total_loans": total_loans,
             "total_penalties": total_penalties, "undertime_deduction": round(float(undertime_deduction or 0), 2),
             "total_deductions": round(total_deductions, 2),
             "total_late_hours": round(late_hours, 2),
-            "late_penalty_rate": float(config.latePenaltyRate or 0),
+            "late_penalty_rate": float(getattr(config, "latePenaltyRate", 0) or 0),
             "late_penalty_items": late_items,
             "worked_holiday_items": worked_holiday_items
         }

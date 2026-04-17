@@ -218,6 +218,8 @@ const Settings = () => {
                   <div className="text-end">
                     <small className="d-block text-muted">
                       Inserted {result.inserted} | Updated {result.updated} | Unchanged {result.unchanged}
+                      {result.archived > 0 && ` | Archived ${result.archived}`}
+                      {result.recovered > 0 && ` | Recovered ${result.recovered}`}
                     </small>
                   </div>
                 </div>
@@ -228,7 +230,7 @@ const Settings = () => {
           <div className="d-flex justify-content-between align-items-center">
             <div>
               <h6 className="fw-bold mb-1">Manual HR Sync</h6>
-              <small className="text-muted">Targets employees, payroll configurations, attendance, leaves, and overtime requests.</small>
+              <small className="text-muted">Targets employees, payroll configurations, attendance, leaves, overtime requests, and undertime records.</small>
             </div>
             <div className="d-flex gap-2">
               <Button
