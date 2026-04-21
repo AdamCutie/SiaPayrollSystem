@@ -63,10 +63,14 @@ class CompensationService:
         hr_late_penalties: float = 0.0,
         overtime_pay: float = 0.0,
         undertime_deduction: float = 0.0,
+        total_nd_pay: float = 0.0,
+        retro_pay: float = 0.0,
         attendance_dates: Optional[set] = None,
+        approved_leave_dates: Optional[set] = None,
         late_hours: float = 0.0,
         late_items: List[dict] = []
     ) -> dict:
+        from datetime import timedelta
         if days_present <= 0:
             return {
                 "basic_salary": 0.0, "gross_pay": 0.0, "net_pay": 0.0,
@@ -95,6 +99,7 @@ class CompensationService:
 
         reg_holiday_pay, special_holiday_pay = 0.0, 0.0
         attendance_dates = attendance_dates or set()
+        approved_leave_dates = approved_leave_dates or set()
         worked_holiday_items = []
 
         for holiday in holidays:
@@ -126,15 +131,40 @@ class CompensationService:
         pagibig = AgencyCalculator.calculate_pagibig(config.basicSalary) if deduct_monthly_statutory else 0.0
         statutory_total = sss + philhealth + pagibig
 
-        reg_holiday_count = sum(1 for holiday in holidays if holiday.type == "Regular Holiday")
-        adjusted_expected = max(1, expected_workdays - reg_holiday_count)
-        days_absent = max(0, adjusted_expected - days_present)
+        # 🚀 NEW: Day-by-Day Absence Check
+        days_absent = 0
+        if pay_period_start and pay_period_end:
+            current_date = pay_period_start.date() if hasattr(pay_period_start, 'date') else pay_period_start
+            end_date = pay_period_end.date() if hasattr(pay_period_end, 'date') else pay_period_end
+            
+            holiday_dates = {h.date.date() if hasattr(h.date, 'date') else h.date: h for h in holidays}
+            
+            while current_date <= end_date:
+                # Monday to Saturday are workdays
+                if current_date.weekday() != 6: 
+                    holiday = holiday_dates.get(current_date)
+                    is_regular_holiday = holiday and holiday.type == "Regular Holiday"
+                    
+                    # If it's a regular workday (not Sunday, not Regular Holiday)
+                    if not is_regular_holiday:
+                        # Check if employee has a log OR an approved leave
+                        if current_date not in attendance_dates and current_date not in approved_leave_dates:
+                            days_absent += 1
+                current_date += timedelta(days=1)
+        else:
+            # Fallback for manual/legacy runs
+            reg_holiday_count = sum(1 for holiday in holidays if holiday.type == "Regular Holiday")
+            adjusted_expected = max(1, expected_workdays - reg_holiday_count)
+            days_absent = max(0, adjusted_expected - days_present)
+
         absence_deduction = round(daily_rate * days_absent, 2)
 
         gross_pay = (
             period_basic_salary
             + total_allowances
             + total_overtime_logs
+            + total_nd_pay
+            + retro_pay
             + excess_days_pay
             + reg_holiday_pay
             + special_holiday_pay
@@ -154,6 +184,8 @@ class CompensationService:
             "net_pay": max(0.0, round(net_pay, 2)), "housing_allowance": housing,
             "transport_allowance": transport, "meal_allowance": meal,
             "other_allowances": other, "total_overtime": round(total_overtime_logs, 2),
+            "total_nd_pay": round(total_nd_pay, 2),
+            "retro_pay": round(retro_pay, 2),
             "excess_days_pay": excess_days_pay, "holiday_pay": round(reg_holiday_pay, 2),
             "special_day_pay": round(special_holiday_pay, 2), "sss_deduction": sss,
             "sss_employee_share": sss_breakdown["employee_share"] if deduct_monthly_statutory else 0.0,
@@ -165,6 +197,9 @@ class CompensationService:
             "philhealth_deduction": philhealth, "pagibig_deduction": pagibig,
             "withholding_tax": tax, "absence_deduction": absence_deduction,
             "days_absent": days_absent, "total_loans": total_loans,
+            "sss_loan": float(config.sssLoan or 0),
+            "pagibig_loan": float(config.pagIbigLoan or 0),
+            "company_loan": float(config.companyLoan or 0),
             "total_penalties": total_penalties, "undertime_deduction": round(float(undertime_deduction or 0), 2),
             "total_deductions": round(total_deductions, 2),
             "total_late_hours": round(late_hours, 2),

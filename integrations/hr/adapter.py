@@ -1,21 +1,21 @@
 from motor.motor_asyncio import AsyncIOMotorCollection
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from core.database import db, hr_db
 from pydantic import ValidationError
-from .schemas import HREmployeeRead, HRPayrollConfigRead, HRPayrollConfigUpdate
+from .schemas import HREmployeeRead, HRPayrollConfigRead, HRPayrollConfigUpdate, HRRoleSalaryRead
 from bson import ObjectId
+from modules.agencies.service import AgencyCalculator
 
 # 1. Define the Collection Names as they exist in the legacy DB
 EMPLOYEES_COLLECTION = "Employees"
-PAYROLL_CONFIG_COLLECTION = "PayrollConfigurations"
+ROLE_SALARIES_COLLECTION = "RoleSalaries"
 ATTENDANCE_COLLECTION = "Attendance"
 LEAVES_COLLECTION = "Leaves"
 
 # Optional fallback config storage inside the payroll DB (keeps HR DB read-only)
-PAYROLL_CONFIG_OVERRIDES_COLLECTION = "PayrollConfigOverrides"
 SYNCED_HR_EMPLOYEES_COLLECTION = "SyncedHREmployees"
-SYNCED_HR_PAYROLL_CONFIG_COLLECTION = "SyncedHRPayrollConfigurations"
+SYNCED_HR_ROLE_SALARIES_COLLECTION = "SyncedHRRoleSalaries"
 SYNCED_HR_ATTENDANCE_COLLECTION = "SyncedHRAttendance"
 SYNCED_HR_LEAVES_COLLECTION = "SyncedHRLeaves"
 SYNCED_HR_OVERTIME_REQUESTS_COLLECTION = "SyncedHROvertimeRequests"
@@ -136,9 +136,10 @@ async def get_hr_attendance_list(
         doc["_id"] = str(doc["_id"])
         eid = doc.get("employeeId")
         if eid not in emp_cache:
-            emp = await hr_db[EMPLOYEES_COLLECTION].find_one({"employeeId": eid})
+            emp = await db[SYNCED_HR_EMPLOYEES_COLLECTION].find_one({"payload.employeeId": eid})
             if emp:
-                emp_cache[eid] = f"{emp.get('lastName')}, {emp.get('firstName')}"
+                payload = emp.get("payload", {})
+                emp_cache[eid] = f"{payload.get('lastName')}, {payload.get('firstName')}"
             else:
                 emp_cache[eid] = f"Unknown ({eid})"
         
@@ -190,10 +191,11 @@ async def get_hr_leaves_list(
             # Normalize ID: remove spaces and ensure string
             clean_eid = str(eid).strip()
             
-            # Search by the human employee number
-            emp = await hr_db[EMPLOYEES_COLLECTION].find_one({"employeeId": clean_eid})
+            # Search by the human employee number in the SYNCED collection
+            emp = await db[SYNCED_HR_EMPLOYEES_COLLECTION].find_one({"payload.employeeId": clean_eid})
             if emp:
-                emp_cache[eid] = f"{emp.get('lastName')}, {emp.get('firstName')}"
+                payload = emp.get("payload", {})
+                emp_cache[eid] = f"{payload.get('lastName')}, {payload.get('firstName')}"
             else:
                 # If not found, it's likely an employee from a previous year (e.g., 2025)
                 emp_cache[eid] = f"Archived/Inactive ({eid})"
@@ -271,55 +273,10 @@ async def get_hr_approved_leave_dates(
 
     return leave_dates
 
-async def update_payroll_config_override(
-    employee_id_str: str,
-    update_data: HRPayrollConfigUpdate
-) -> bool:
-    """
-    Saves or updates a payroll configuration override in our local database.
-    Since HR DB is read-only, we store custom salary/allowance settings here.
-    """
-    collection = db[PAYROLL_CONFIG_OVERRIDES_COLLECTION]
-    
-    # We use the employee's HR ID as the link
-    query = {"employeeId": employee_id_str}
-    
-    # Convert Pydantic model to dict, removing None values to avoid overwriting with nulls
-    update_dict = update_data.model_dump(exclude_unset=True)
-    if not update_dict:
-        return False
-
-    update_dict["updatedAt"] = datetime.now()
-
-    result = await collection.update_one(
-        query,
-        {"$set": update_dict},
-        upsert=True
-    )
-    
-    return True # If it didn't raise an exception, it succeeded in MongoDB terms.
-
 async def get_all_active_employees(limit: int | None = None) -> List[HREmployeeRead]:
     """
-    Fetches all employees from the legacy HR system who are marked as active.
+    Fetches all active employees from our synced local database.
     """
-    collection = hr_db[EMPLOYEES_COLLECTION]
-    cursor = collection.find({"isActive": True})
-    if limit is not None:
-        cursor = cursor.limit(limit)
-
-    employees: List[HREmployeeRead] = []
-    async for doc in cursor:
-        try:
-            employees.append(HREmployeeRead(**doc))
-        except ValidationError as e:
-            doc_id = doc.get("_id", "<unknown>")
-            print(f"WARNING: Skipping invalid HR employee doc _id={doc_id}: {e}")
-
-    return employees
-
-
-async def get_synced_active_employees(limit: int | None = None) -> List[HREmployeeRead]:
     collection = db[SYNCED_HR_EMPLOYEES_COLLECTION]
     cursor = collection.find({"payload.isActive": True})
     if limit is not None:
@@ -327,9 +284,8 @@ async def get_synced_active_employees(limit: int | None = None) -> List[HREmploy
 
     employees: List[HREmployeeRead] = []
     async for doc in cursor:
-        payload = doc.get("payload", {})
         try:
-            employees.append(HREmployeeRead(**payload))
+            employees.append(HREmployeeRead(**doc.get("payload", {})))
         except ValidationError as e:
             doc_id = doc.get("_id", "<unknown>")
             print(f"WARNING: Skipping invalid synced HR employee doc _id={doc_id}: {e}")
@@ -386,34 +342,31 @@ async def _get_synced_employee_info_map(employee_numbers: set[str]) -> dict[str,
 
 async def get_employee_by_email(email: str) -> Optional[HREmployeeRead]:
     """
-    Fetches a single employee record from HR by email (unique in most systems).
+    Fetches a single employee record from our synced local database by email.
     """
-    collection = hr_db[EMPLOYEES_COLLECTION]
-    doc = await collection.find_one({"email": email})
+    collection = db[SYNCED_HR_EMPLOYEES_COLLECTION]
+    doc = await collection.find_one({"payload.email": email})
     if not doc:
         return None
 
     try:
-        return HREmployeeRead(**doc)
+        return HREmployeeRead(**doc.get("payload", {}))
     except ValidationError as e:
         doc_id = doc.get("_id", "<unknown>")
-        print(f"WARNING: HR employee record invalid for _id={doc_id}: {e}")
+        print(f"WARNING: Synced HR employee record invalid for _id={doc_id}: {e}")
         return None
 
 
 async def get_employee_by_id(employee_id_str: str) -> Optional[HREmployeeRead]:
     """
-    Fetches a single employee record from HR by MongoDB _id (preferred) or employeeId (employee number).
+    Fetches a single employee record from our synced local database by MongoDB _id or employeeId.
     """
-    collection = hr_db[EMPLOYEES_COLLECTION]
+    collection = db[SYNCED_HR_EMPLOYEES_COLLECTION]
 
     or_terms: list[dict] = []
-    if employee_id_str and ObjectId.is_valid(employee_id_str):
-        or_terms.append({"_id": ObjectId(employee_id_str)})
-
     if employee_id_str:
-        # Some systems pass the human employee number instead of MongoDB _id.
-        or_terms.append({"employeeId": employee_id_str})
+        or_terms.append({"payload.employeeId": employee_id_str})
+        or_terms.append({"payload._id": employee_id_str})
 
     if not or_terms:
         return None
@@ -423,12 +376,11 @@ async def get_employee_by_id(employee_id_str: str) -> Optional[HREmployeeRead]:
         return None
 
     try:
-        return HREmployeeRead(**doc)
+        return HREmployeeRead(**doc.get("payload", {}))
     except ValidationError as e:
         doc_id = doc.get("_id", "<unknown>")
-        print(f"WARNING: HR employee record invalid for _id={doc_id}: {e}")
+        print(f"WARNING: Synced HR employee record invalid for _id={doc_id}: {e}")
         return None
-
 
 async def get_employee_payroll_config(
     employee_id_str: str,
@@ -438,68 +390,62 @@ async def get_employee_payroll_config(
     """
     Fetches the LATEST salary settings for an employee.
     PRIORITY:
-    1. Local Payroll Database (Overrides from our UI)
-    2. Legacy HR System (Specialized PayrollConfigurations table)
-    3. Legacy HR System (Fallback: 'baseSalary' directly from Employees table)
+    1. Role-Based Salaries (SyncedHRRoleSalaries - Primary Source)
+    2. Fallback: 'baseSalary' directly from Employees table
     """
     
-    # --- 1. CHECK LOCAL OVERRIDES FIRST ---
-    override_terms: list[dict] = []
-    if employee_id_str:
-        override_terms.append({"employeeId": employee_id_str})
-        if ObjectId.is_valid(employee_id_str):
-            override_terms.append({"employeeId": ObjectId(employee_id_str)})
-    if employee_number:
-        override_terms.append({"employeeNumber": employee_number})
-
-    if override_terms:
-        override_cursor = db[PAYROLL_CONFIG_OVERRIDES_COLLECTION].find({"$or": override_terms}).sort("updatedAt", -1).limit(1)
-        override_docs = await override_cursor.to_list(length=1)
-        if override_docs:
-            try:
-                return HRPayrollConfigRead(**override_docs[0])
-            except ValidationError as e:
-                print(f"WARNING: Invalid local override doc: {e}")
-
-    # --- 2. TRY HR SPECIALIZED SALARY TABLE ---
-    collection = hr_db[PAYROLL_CONFIG_COLLECTION]
-    or_terms: list[dict] = []
-
-    if employee_id_str:
-        or_terms.append({"employeeId": employee_id_str})
-        if ObjectId.is_valid(employee_id_str):
-            or_terms.append({"employeeId": ObjectId(employee_id_str)})
-    if employee_number:
-        # Search by both possible keys in legacy DB
-        or_terms.append({"employeeNumber": employee_number})
-        or_terms.append({"employeeId": employee_number})
-    if full_name:
-        last_name = full_name.split(",")[0].strip().replace(" ", "")
-        if len(last_name) >= 2:
-            or_terms.append({"employeeName": {"$regex": f"^{last_name[:4]}", "$options": "i"}})
-
-    if or_terms:
-        cursor = collection.find({"$or": or_terms}).sort("updatedAt", -1).limit(1)
-        docs = await cursor.to_list(length=1)
-        
-        if docs:
-            try:
-                return HRPayrollConfigRead(**docs[0])
-            except ValidationError as e:
-                print(f"WARNING: Invalid HR payroll config: {e}")
-
-    # --- 3. FALLBACK: USE 'baseSalary' FROM EMPLOYEES TABLE ---
-    # This is critical for the new 2026 employees who don't have a Salary table record yet.
+    # Prerequisite: Fetch the basic employee record to determine their role
     emp_record = await get_employee_by_id(employee_id_str)
+    if not emp_record and employee_number:
+        # Fallback to fetching by employee number if ID failed
+        emp_record = await get_employee_by_id(employee_number)
+
+    # --- 1. PRIORITY 1: ROLE-BASED SALARIES (SYNCED) ---
+    if emp_record and emp_record.role:
+        role_salary_doc = await db[SYNCED_HR_ROLE_SALARIES_COLLECTION].find_one({
+            "payload.roleName": emp_record.role,
+            "payload.isActive": True
+        })
+        if role_salary_doc:
+            try:
+                rs = HRRoleSalaryRead(**role_salary_doc["payload"])
+                salary = float(rs.baseSalary)
+                daily_rate = round(salary / 26.0, 2)
+                hourly_rate = round(daily_rate / 8.0, 2)
+
+                # We wrap the role salary into the payroll config schema
+                return HRPayrollConfigRead(
+                    id=str(rs.id),
+                    employeeId=emp_record.employeeId,
+                    basicSalary=salary,
+                    housingAllowance=0.0,
+                    transportAllowance=0.0,
+                    mealAllowance=0.0,
+                    otherAllowances=0.0,
+                    absencePenaltyRate=daily_rate,
+                    latePenaltyRate=hourly_rate,
+                    withholdingTax=_calculate_estimated_withholding_tax(salary)
+                )
+            except ValidationError as e:
+                print(f"WARNING: Invalid role salary doc for role {emp_record.role}: {e}")
+
+    # --- 2. FALLBACK: USE 'baseSalary' FROM EMPLOYEES TABLE ---
     if emp_record and emp_record.baseSalary > 0:
+        salary = float(emp_record.baseSalary)
+        daily_rate = round(salary / 26.0, 2)
+        hourly_rate = round(daily_rate / 8.0, 2)
+
         return HRPayrollConfigRead(
-            id=emp_record.id, # Dummy id for the schema
+            id=emp_record.id,
             employeeId=emp_record.employeeId,
-            basicSalary=emp_record.baseSalary,
+            basicSalary=salary,
             housingAllowance=0.0,
             transportAllowance=0.0,
             mealAllowance=0.0,
-            otherAllowances=0.0
+            otherAllowances=0.0,
+            absencePenaltyRate=daily_rate,
+            latePenaltyRate=hourly_rate,
+            withholdingTax=_calculate_estimated_withholding_tax(salary)
         )
 
     return None
@@ -510,46 +456,46 @@ async def get_synced_employee_payroll_config(
     employee_number: str,
     full_name: str
 ) -> Optional[HRPayrollConfigRead]:
-    override_terms: list[dict] = []
-    if employee_id_str:
-        override_terms.append({"employeeId": employee_id_str})
-        if ObjectId.is_valid(employee_id_str):
-            override_terms.append({"employeeId": ObjectId(employee_id_str)})
-    if employee_number:
-        override_terms.append({"employeeNumber": employee_number})
-
-    if override_terms:
-        override_cursor = db[PAYROLL_CONFIG_OVERRIDES_COLLECTION].find({"$or": override_terms}).sort("updatedAt", -1).limit(1)
-        override_docs = await override_cursor.to_list(length=1)
-        if override_docs:
-            try:
-                return HRPayrollConfigRead(**override_docs[0])
-            except ValidationError as e:
-                print(f"WARNING: Invalid local override doc: {e}")
-
-    collection = db[SYNCED_HR_PAYROLL_CONFIG_COLLECTION]
-    or_terms: list[dict] = []
-    if employee_id_str:
-        or_terms.append({"payload.employeeId": employee_id_str})
-    if employee_number:
-        or_terms.append({"payload.employeeNumber": employee_number})
-        or_terms.append({"payload.employeeId": employee_number})
-    if full_name:
-        last_name = full_name.split(",")[0].strip().replace(" ", "")
-        if len(last_name) >= 2:
-            or_terms.append({"payload.employeeName": {"$regex": f"^{last_name[:4]}", "$options": "i"}})
-
-    if or_terms:
-        cursor = collection.find({"$or": or_terms}).sort("payload.updatedAt", -1).limit(1)
-        docs = await cursor.to_list(length=1)
-        if docs:
-            try:
-                return HRPayrollConfigRead(**docs[0]["payload"])
-            except ValidationError as e:
-                print(f"WARNING: Invalid synced HR payroll config: {e}")
-
+    """
+    Fetches salary settings from the local SYNCED database.
+    Used for UI previews and speed.
+    """
+    
+    # 1. Try Role-Based Salaries first (Our new standard)
     employee_collection = db[SYNCED_HR_EMPLOYEES_COLLECTION]
     employee_doc = await employee_collection.find_one({"payload.employeeId": employee_number})
+    
+    if employee_doc:
+        payload = employee_doc.get("payload", {})
+        role = payload.get("role")
+        if role:
+            role_salary_doc = await db[SYNCED_HR_ROLE_SALARIES_COLLECTION].find_one({
+                "payload.roleName": role,
+                "payload.isActive": True
+            })
+            if role_salary_doc:
+                try:
+                    rs = HRRoleSalaryRead(**role_salary_doc["payload"])
+                    salary = float(rs.baseSalary)
+                    daily_rate = round(salary / 26.0, 2)
+                    hourly_rate = round(daily_rate / 8.0, 2)
+
+                    return HRPayrollConfigRead(
+                        id=str(rs.id),
+                        employeeId=payload.get("employeeId"),
+                        basicSalary=salary,
+                        housingAllowance=0.0,
+                        transportAllowance=0.0,
+                        mealAllowance=0.0,
+                        otherAllowances=0.0,
+                        absencePenaltyRate=daily_rate,
+                        latePenaltyRate=hourly_rate,
+                        withholdingTax=_calculate_estimated_withholding_tax(salary)
+                    )
+                except ValidationError as e:
+                    print(f"WARNING: Invalid role salary doc for role {role}: {e}")
+
+    # 2. Fallback to Employee baseSalary field
     if employee_doc:
         payload = employee_doc.get("payload", {})
         base_salary = payload.get("baseSalary", 0)
@@ -568,7 +514,8 @@ async def get_synced_employee_payroll_config(
                 mealAllowance=0.0,
                 otherAllowances=0.0,
                 absencePenaltyRate=daily_rate,
-                latePenaltyRate=hourly_rate
+                latePenaltyRate=hourly_rate,
+                withholdingTax=_calculate_estimated_withholding_tax(salary)
             )
 
     return None
@@ -608,9 +555,10 @@ async def get_hr_overtime_requests(
         eid = doc.get("employeeId")
         
         if eid:
-            emp = await hr_db[EMPLOYEES_COLLECTION].find_one({"employeeId": str(eid).strip()})
+            emp = await db[SYNCED_HR_EMPLOYEES_COLLECTION].find_one({"payload.employeeId": str(eid).strip()})
             if emp:
-                doc["fullName"] = f"{emp.get('lastName')}, {emp.get('firstName')}"
+                payload = emp.get("payload", {})
+                doc["fullName"] = f"{payload.get('lastName')}, {payload.get('firstName')}"
             else:
                 doc["fullName"] = f"Unknown ({eid})"
         
@@ -629,6 +577,13 @@ async def get_synced_attendance_list(
     if employee_number:
         query["employee_number"] = employee_number
 
+    # 🚀 OPTIMIZATION: Push date filtering to MongoDB level
+    if start_date and end_date:
+        query["payload.date"] = {
+            "$gte": start_date.isoformat() if isinstance(start_date, datetime) else start_date,
+            "$lte": end_date.isoformat() if isinstance(end_date, datetime) else end_date
+        }
+
     cursor = collection.find(query)
     docs = await cursor.to_list(length=None)
 
@@ -646,7 +601,11 @@ async def get_synced_attendance_list(
         if not parsed_date:
             continue
             
-        # Date filtering: Only apply if both dates are provided
+        # Ensure parsed_date is offset-aware for comparison if start_date is
+        if parsed_date.tzinfo is None and start_date and start_date.tzinfo is not None:
+            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+            
+        # Keep Python-side filter as a fallback for non-standard formats
         if start_date and end_date:
             if not (start_date <= parsed_date <= end_date):
                 continue
@@ -690,6 +649,16 @@ async def get_synced_leave_list(
     if approved_only:
         query["status"] = {"$regex": "^approved$", "$options": "i"}
 
+    # 🚀 OPTIMIZATION: Push date filtering to MongoDB level
+    if start_date and end_date:
+        s_str = start_date.isoformat() if isinstance(start_date, datetime) else start_date
+        e_str = end_date.isoformat() if isinstance(end_date, datetime) else end_date
+        # Query where the leave period overlaps with our search range
+        query["$or"] = [
+            {"payload.startDate": {"$gte": s_str, "$lte": e_str}},
+            {"payload.endDate": {"$gte": s_str, "$lte": e_str}}
+        ]
+
     docs = await collection.find(query).to_list(length=None)
     employee_numbers = {
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
@@ -704,7 +673,7 @@ async def get_synced_leave_list(
         start_dt = _parse_hr_datetime(payload.get("startDate"))
         end_dt = _parse_hr_datetime(payload.get("endDate"))
         
-        # Date filtering: Only apply if both are provided
+        # Keep Python-side filter as a fallback for non-standard formats
         if start_date and end_date:
             if not start_dt or not end_dt:
                 continue
@@ -765,6 +734,13 @@ async def get_synced_overtime_requests(
     if employee_number:
         query["employee_number"] = employee_number
 
+    # 🚀 OPTIMIZATION: Push date filtering to MongoDB level
+    if start_date and end_date:
+        query["payload.date"] = {
+            "$gte": start_date.isoformat() if isinstance(start_date, datetime) else start_date,
+            "$lte": end_date.isoformat() if isinstance(end_date, datetime) else end_date
+        }
+
     docs = await collection.find(query).to_list(length=None)
     employee_numbers = {
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
@@ -778,7 +754,7 @@ async def get_synced_overtime_requests(
 
         parsed_date = _parse_hr_datetime(payload.get("date"))
         
-        # Date filtering
+        # Keep Python-side filter as a fallback for non-standard formats
         if start_date and end_date:
             if not parsed_date or parsed_date < start_date or parsed_date > end_date:
                 continue
@@ -800,6 +776,29 @@ async def get_synced_overtime_requests(
     results.sort(key=lambda item: item.get("date") or "", reverse=True)
     return results
 
+def _calculate_estimated_withholding_tax(basic_salary: float) -> float:
+    """
+    Helper to calculate a semi-monthly withholding tax estimate.
+    Assumes standard statutory deductions (SSS, PHIC, HDMF) applied to basic salary.
+    """
+    if not basic_salary or basic_salary <= 0:
+        return 0.0
+        
+    # 1. Semi-monthly basic pay (Gross estimate)
+    gross_semi = basic_salary / 2.0
+    
+    # 2. Estimate Statutories (These are typically full amounts in 1st half)
+    # For a conservative profile preview, we use the 1st half logic
+    sss = AgencyCalculator.calculate_sss(basic_salary)
+    phic = AgencyCalculator.calculate_philhealth(basic_salary)
+    hdmf = AgencyCalculator.calculate_pagibig(basic_salary)
+    
+    # 3. Taxable Income
+    taxable = max(0.0, gross_semi - (sss + phic + hdmf))
+    
+    # 4. Calculate Tax
+    return AgencyCalculator.calculate_withholding_tax(taxable)
+
 
 async def get_synced_undertime_records(
     employee_number: Optional[str] = None,
@@ -810,6 +809,13 @@ async def get_synced_undertime_records(
     query = {}
     if employee_number:
         query["employee_number"] = employee_number
+
+    # 🚀 OPTIMIZATION: Push date filtering to MongoDB level
+    if start_date and end_date:
+        query["payload.date"] = {
+            "$gte": start_date.isoformat() if isinstance(start_date, datetime) else start_date,
+            "$lte": end_date.isoformat() if isinstance(end_date, datetime) else end_date
+        }
 
     docs = await collection.find(query).to_list(length=None)
     employee_numbers = {
@@ -824,7 +830,7 @@ async def get_synced_undertime_records(
 
         parsed_date = _parse_hr_datetime(payload.get("date"))
         
-        # Date filtering
+        # Keep Python-side filter as a fallback for non-standard formats
         if start_date and end_date:
             if not parsed_date or parsed_date < start_date or parsed_date > end_date:
                 continue

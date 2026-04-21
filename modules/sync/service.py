@@ -14,7 +14,7 @@ from modules.activity_logs.service import ActivityLogService
 
 SYNC_TARGETS = {
     "employees": ("Employees", "SyncedHREmployees"),
-    "payroll_configurations": ("PayrollConfigurations", "SyncedHRPayrollConfigurations"),
+    "role_salaries": ("RoleSalaries", "SyncedHRRoleSalaries"),
     "attendance": ("Attendance", "SyncedHRAttendance"),
     "leaves": ("Leaves", "SyncedHRLeaves"),
     "overtime_requests": ("OvertimeRequests", "SyncedHROvertimeRequests"),

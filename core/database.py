@@ -50,7 +50,7 @@ async def ensure_db_indexes() -> None:
         )
         for collection_name in (
             "SyncedHREmployees",
-            "SyncedHRPayrollConfigurations",
+            "SyncedHRRoleSalaries",
             "SyncedHRAttendance",
             "SyncedHRLeaves",
             "SyncedHROvertimeRequests",

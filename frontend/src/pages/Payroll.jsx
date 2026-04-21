@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Form, Button, Table, Badge, Spinner, Alert, Modal } from 'react-bootstrap';
 import axios from 'axios';
-import { Search, Check, Download, Settings, Users, FileText, Eye, Calendar, Zap, ZapOff } from 'lucide-react';
+import { Search, Check, Download, Settings, Users, FileText, Eye, Calendar, Zap, ZapOff, Trash2 } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Payroll = () => {
@@ -21,6 +21,14 @@ const Payroll = () => {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configData, setConfigData] = useState({});
+
+  // Retro Adjustment State
+  const [showRetroModal, setShowRetroModal] = useState(false);
+  const [retroData, setRetroData] = useState({ amount: '', reason: '' });
+  const [retroEmployee, setRetroEmployee] = useState(null);
+  const [employeeAdjustments, setEmployeeAdjustments] = useState([]);
+  const [adjustmentsLoading, setAdjustmentsLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Payslips State
   const [payrollHistory, setPayrollHistory] = useState([]);
@@ -117,6 +125,46 @@ const Payroll = () => {
       fetchSchedule(); 
     } catch (err) {
       alert("Failed to update automation status.");
+    }
+  };
+
+  const fetchEmployeeAdjustments = async (employeeId) => {
+    try {
+      setAdjustmentsLoading(true);
+      const response = await axios.get(`http://localhost:8000/payroll/processing/adjustments/${employeeId}`);
+      setEmployeeAdjustments(response.data);
+      setAdjustmentsLoading(false);
+    } catch (err) {
+      console.error("Failed to fetch adjustments", err);
+      setAdjustmentsLoading(false);
+    }
+  };
+
+  const handleAddRetro = async () => {
+    if (!retroEmployee || !retroData.amount) return;
+    try {
+      await axios.post('http://localhost:8000/payroll/processing/adjustments', {
+        employee_id: retroEmployee.id,
+        employee_number: retroEmployee.employee_id,
+        amount: parseFloat(retroData.amount),
+        reason: retroData.reason || 'Manual Adjustment'
+      });
+      // Refresh the list immediately
+      fetchEmployeeAdjustments(retroEmployee.id);
+      setRetroData({ amount: '', reason: '' });
+      alert("Retroactive adjustment added! It will be applied on the next payroll run for this employee.");
+    } catch (err) {
+      alert("Failed to add adjustment.");
+    }
+  };
+
+  const handleDeleteAdjustment = async (adjId) => {
+    if (!window.confirm("Are you sure you want to delete this pending adjustment?")) return;
+    try {
+      await axios.delete(`http://localhost:8000/payroll/processing/adjustments/${adjId}`);
+      fetchEmployeeAdjustments(retroEmployee.id);
+    } catch (err) {
+      alert(err.response?.data?.detail || "Failed to delete adjustment.");
     }
   };
 
@@ -436,14 +484,31 @@ const Payroll = () => {
                    ₱{((emp.sssLoan || 0) + (emp.pagIbigLoan || 0) + (emp.companyLoan || 0)).toLocaleString()}
                 </td>
                 <td className="text-end">
-                  <Button 
-                    variant="link" 
-                    className="p-0 text-decoration-none" 
-                    style={{ color: '#D29191' }}
-                    onClick={() => handleEditConfig(emp)}
-                  >
-                    <Eye size={18} />
-                  </Button>
+                  <div className="d-flex justify-content-end gap-2">
+                    <Button 
+                      variant="link" 
+                      className="p-0 text-decoration-none" 
+                      style={{ color: '#D29191' }}
+                      onClick={() => {
+                        setRetroEmployee(emp);
+                        setRetroData({ amount: '', reason: '' });
+                        fetchEmployeeAdjustments(emp.id);
+                        setShowRetroModal(true);
+                      }}
+                      title="Add Retroactive Adjustment"
+                    >
+                      <Zap size={18} />
+                    </Button>
+                    <Button 
+                      variant="link" 
+                      className="p-0 text-decoration-none" 
+                      style={{ color: '#D29191' }}
+                      onClick={() => handleEditConfig(emp)}
+                      title="View Profile"
+                    >
+                      <Eye size={18} />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -549,11 +614,17 @@ const Payroll = () => {
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">Withholding Tax</Form.Label>
-                  <Form.Control type="text" value="Auto Computed" readOnly className="bg-light text-muted" />
+                  <Form.Control 
+                    type="text" 
+                    value="Payroll Calculation" 
+                    readOnly 
+                    className="bg-light fw-bold text-center" 
+                    style={{ color: '#D29191', fontSize: '12px' }} 
+                  />
                 </Form.Group>
               </Col>
-            </Row>
-            {(configData.sssEmployeeShare > 0 || configData.sssMPFEmployeeShare > 0) && (
+              </Row>
+              {(configData.sssEmployeeShare > 0 || configData.sssMPFEmployeeShare > 0) && (
               <div className="mt-2 mb-3 p-3 rounded-3 bg-light border">
                 <small className="d-block text-muted fw-bold mb-2">SSS 2025 Breakdown</small>
                 <Row>
@@ -574,11 +645,10 @@ const Payroll = () => {
                   Employer-side amounts are tracked separately: Regular SSS, EC, and MPF employer shares are not deducted from employee pay.
                 </small>
               </div>
-            )}
-            <small className="d-block text-muted mt-n2 mb-3">
-              Withholding tax is not shown as a fixed preview here because it depends on the actual taxable pay for the selected cutoff, including attendance, overtime, absences, and taxable allowances.
-            </small>
-
+              )}
+              <small className="d-block text-muted mt-n2 mb-3">
+                Withholding tax is not displayed as a fixed amount in the profile because it is <strong>dynamically calculated</strong> during each payroll run. The exact amount depends on the employee's actual taxable earnings for that period (including basic pay, overtime, night differential, and absences).
+              </small>
             {/* --- SECTION 3: LOANS & RATES --- */}
             <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger d-flex justify-content-between align-items-center">
               3. Active Loans & Penalty Rates
@@ -766,6 +836,11 @@ const Payroll = () => {
                 <div className="text-muted small">
                   Payslip for the Period {formatDateLabel(selectedPayslip.pay_period_start)} - {formatDateLabel(selectedPayslip.pay_period_end)}
                 </div>
+                {selectedPayslip.pay_date && (
+                  <div className="fw-bold small text-primary mt-1">
+                    Scheduled Payday: {formatDateLabel(selectedPayslip.pay_date)}
+                  </div>
+                )}
               </div>
 
               <div className="border border-dark mb-4 p-3 bg-light">
@@ -776,13 +851,13 @@ const Payroll = () => {
                   </Col>
                   <Col md={4}>
                     <div className="mb-2"><strong>Designation:</strong> <span className="ms-1">{selectedPayslip.department || 'Staff'}</span></div>
-                    <div><strong>Hourly Salary:</strong> <span className="ms-1">---</span></div>
+                    <div><strong>Hourly Salary:</strong> <span className="ms-1">{selectedPayslip.hourly_rate ? Number(selectedPayslip.hourly_rate).toFixed(2) : '---'}</span></div>
                   </Col>
                   <Col md={4}>
-                    <div className="mb-2"><strong>SSS No:</strong> <span className="ms-1">---</span></div>
-                    <div><strong>Phil Health No:</strong> <span className="ms-1">---</span></div>
-                  </Col>
-                </Row>
+                    <div className="mb-2"><strong>SSS No:</strong> <span className="ms-1">{selectedPayslip.sss_number || '---'}</span></div>
+                    <div className="mb-2"><strong>Phil Health No:</strong> <span className="ms-1">{selectedPayslip.philhealth_number || '---'}</span></div>
+                    <div><strong>Pag-IBIG No:</strong> <span className="ms-1">{selectedPayslip.pagibig_number || '---'}</span></div>
+                  </Col>                </Row>
               </div>
 
               {/* --- MAIN EARNINGS & DEDUCTIONS TABLE --- */}
@@ -808,8 +883,22 @@ const Payroll = () => {
                       {selectedPayslip.total_overtime > 0 && (
                         <div className="d-flex mb-1">
                           <div className="flex-grow-1">OVERTIME PAY</div>
-                          <div className="text-end" style={{ width: '80px' }}>---</div>
+                          <div className="text-end" style={{ width: '80px' }}>{selectedPayslip.total_overtime_hours ? Number(selectedPayslip.total_overtime_hours).toFixed(2) : '---'}</div>
                           <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.total_overtime).replace('PHP ', '')}</div>
+                        </div>
+                      )}
+                      {selectedPayslip.total_nd_pay > 0 && (
+                        <div className="d-flex mb-1">
+                          <div className="flex-grow-1">NIGHT DIFFERENTIAL</div>
+                          <div className="text-end" style={{ width: '80px' }}>{selectedPayslip.total_nd_hours ? Number(selectedPayslip.total_nd_hours).toFixed(2) : '---'}</div>
+                          <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.total_nd_pay).replace('PHP ', '')}</div>
+                        </div>
+                      )}
+                      {selectedPayslip.retro_pay !== 0 && (
+                        <div className="d-flex mb-1">
+                          <div className="flex-grow-1">RETROACTIVE ADJUSTMENT</div>
+                          <div className="text-end" style={{ width: '80px' }}>---</div>
+                          <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.retro_pay).replace('PHP ', '')}</div>
                         </div>
                       )}
                       {selectedPayslip.holiday_pay > 0 && (
@@ -841,6 +930,7 @@ const Payroll = () => {
                         {(
                           (selectedPayslip.basic_salary || 0) + 
                           (selectedPayslip.total_overtime || 0) + 
+                          (selectedPayslip.total_nd_pay || 0) + 
                           (selectedPayslip.holiday_pay || 0) + 
                           (selectedPayslip.special_day_pay || 0) + 
                           (selectedPayslip.excess_days_pay || 0)
@@ -971,17 +1061,123 @@ const Payroll = () => {
                 </Row>
 
                 {/* NET TAKE HOME PAY BANNER */}
-                <div className="d-flex align-items-center justify-content-between p-2 border-top border-dark" style={{ backgroundColor: '#00F5D4', color: '#000' }}>
+                <div className="d-flex align-items-center justify-content-between p-2 border-top border-dark" style={{ backgroundColor: '#00F5D4', color: '#000', breakAfter: 'page' }}>
                   <div className="fw-bold" style={{ letterSpacing: '2px' }}>NET EARNINGS (G-H)</div>
                   <h3 className="mb-0 fw-bold">{formatMoney(selectedPayslip.net_pay)}</h3>
                 </div>
               </div>
 
+              {/* CSS for print-only optimization */}
+              <style>
+                {`
+                  @media print {
+                    @page {
+                      size: A4;
+                      margin: 10mm;
+                    }
+                    body {
+                      visibility: hidden;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                    }
+                    #printable-payslip, #printable-payslip * {
+                      visibility: visible;
+                    }
+                    #printable-payslip {
+                      position: absolute;
+                      left: 0;
+                      top: 0;
+                      width: 100%;
+                      padding: 0 !important;
+                      margin: 0 !important;
+                      background-color: white !important;
+                      -webkit-print-color-adjust: exact !important;
+                      print-color-adjust: exact !important;
+                    }
+                    /* Ensure no extra pages from modal backdrop or headers */
+                    .modal-header, .modal-footer, .navbar, .sidebar, .btn, .d-print-none, .modal-backdrop {
+                      display: none !important;
+                    }
+                    .page-break {
+                      break-after: page;
+                      page-break-after: always;
+                    }
+                  }
+                `}
+              </style>
+
+              {/* --- RECURRING DEDUCTION DETAILS --- */}
+              <div className="mb-4">
+                <Row className="g-0 border border-dark">
+                  <Col md={6} className="border-end border-dark">
+                    <div className="bg-dark text-white p-1 text-center fw-bold" style={{ fontSize: '10px' }}>RECURRING DEDUCTION DETAILS (GOVERNMENT LOANS)</div>
+                    <Table bordered size="sm" className="mb-0 border-0" style={{ fontSize: '9px' }}>
+                      <thead className="bg-light">
+                        <tr>
+                          <th>Govt Loan</th>
+                          <th>Loan Date</th>
+                          <th>Loan Amount</th>
+                          <th>Amount Paid</th>
+                          <th>Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>SSS Loan</td>
+                          <td>---</td>
+                          <td>---</td>
+                          <td className="fw-bold">₱{Number(selectedPayslip.sss_loan || 0).toLocaleString()}</td>
+                          <td>---</td>
+                        </tr>
+                        <tr>
+                          <td>Pag-IBIG Loan</td>
+                          <td>---</td>
+                          <td>---</td>
+                          <td className="fw-bold">₱{Number(selectedPayslip.pagibig_loan || 0).toLocaleString()}</td>
+                          <td>---</td>
+                        </tr>
+                      </tbody>
+                    </Table>
+                  </Col>
+                  <Col md={6}>
+                    <div className="bg-dark text-white p-1 text-center fw-bold" style={{ fontSize: '10px' }}>RECURRING DEDUCTION DETAILS (COMPANY PAYABLES)</div>
+                    <Table bordered size="sm" className="mb-0 border-0" style={{ fontSize: '9px' }}>
+                      <thead className="bg-light">
+                        <tr>
+                          <th>Company</th>
+                          <th>Advances/Loans</th>
+                          <th>Loan Date</th>
+                          <th>Amount Paid</th>
+                          <th>Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>SIA System</td>
+                          <td>Company Loan</td>
+                          <td>---</td>
+                          <td className="fw-bold">₱{Number(selectedPayslip.company_loan || 0).toLocaleString()}</td>
+                          <td>---</td>
+                        </tr>
+                      </tbody>
+                    </Table>
+                  </Col>
+                </Row>
+              </div>
+
               {/* --- SUPPLEMENTARY DETAILS --- */}
               <div className="row g-4 mt-2">
                 <Col md={6}>
-                   <h6 className="fw-bold small border-bottom border-dark pb-1 mb-2 text-uppercase">Time Based Details (Lates/Holidays)</h6>
+                   <h6 className="fw-bold small border-bottom border-dark pb-1 mb-2 text-uppercase">Supplementary Details (Time & Adjustments)</h6>
                    <div style={{ fontSize: '11px' }}>
+                      {selectedPayslip.retro_items?.length > 0 && (
+                        <div className="mb-2">
+                          <strong>Retroactive Adjustments:</strong>
+                          {selectedPayslip.retro_items.map((item, idx) => (
+                            <div key={idx} className="ps-2">• ₱{Number(item.amount).toLocaleString()}: {item.reason}</div>
+                          ))}
+                        </div>
+                      )}
                       {selectedPayslip.worked_holiday_items?.length > 0 && (
                         <div className="mb-2">
                           <strong>Holidays Worked:</strong>
@@ -1005,7 +1201,7 @@ const Payroll = () => {
                 </Col>
                 <Col md={6}>
                   <h6 className="fw-bold small border-bottom border-dark pb-1 mb-2 text-uppercase">Attendance Summary</h6>
-                  <Table bordered size="sm" className="text-center border-dark" style={{ fontSize: '11px' }}>
+                  <Table bordered size="sm" className="text-center border-dark mb-4" style={{ fontSize: '11px' }}>
                     <thead className="bg-light">
                       <tr>
                         <th>Days Worked</th>
@@ -1021,6 +1217,39 @@ const Payroll = () => {
                       </tr>
                     </tbody>
                   </Table>
+
+                  <h6 className="fw-bold small border-bottom border-dark pb-1 mb-2 text-uppercase">Year-To-Date Payroll Data</h6>
+                  {selectedPayslip.ytd_data ? (
+                    <Table bordered size="sm" className="border-dark" style={{ fontSize: '11px' }}>
+                      <tbody>
+                        <tr>
+                          <td className="bg-light fw-bold" style={{ width: '40%' }}>YTD Taxable Income</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_taxable_income || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="bg-light fw-bold" style={{ width: '40%' }}>YTD SSS Contri.</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_sss_contribution || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr>
+                          <td className="bg-light fw-bold">YTD Non-Taxable</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_non_taxable_income || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="bg-light fw-bold">YTD PHI Contri.</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_phi_contribution || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr>
+                          <td className="bg-light fw-bold">YTD Total Earnings</td>
+                          <td className="text-end fw-bold">₱{Number((selectedPayslip.ytd_data.ytd_taxable_income || 0) + (selectedPayslip.ytd_data.ytd_non_taxable_income || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="bg-light fw-bold">YTD HDMF Contri.</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_hdmf_contribution || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr>
+                          <td colSpan={2}></td>
+                          <td className="bg-light fw-bold">YTD Wtax</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_wtax || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      </tbody>
+                    </Table>
+                  ) : (
+                    <div className="text-muted small italic">YTD data not available for this legacy record.</div>
+                  )}
                 </Col>
               </div>
 
@@ -1132,6 +1361,132 @@ const Payroll = () => {
           </div>
         )}
       </Card>
+
+      {/* --- RETROACTIVE ADJUSTMENT MODAL --- */}
+      <Modal show={showRetroModal} onHide={() => {
+        setShowRetroModal(false);
+        setEmployeeAdjustments([]);
+        setShowHistory(false);
+      }} centered>
+        <Modal.Header closeButton className="border-0">
+          <Modal.Title className="fw-bold" style={{ color: '#5A4343' }}>
+            Retroactive Adjustment
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="px-4 pb-4">
+          <div className="mb-4">
+            <p className="text-muted small mb-3">
+              Add a one-time adjustment for <strong>{retroEmployee?.full_name}</strong>. 
+              This will be added to the next payroll run.
+            </p>
+            <Form>
+              <Row>
+                <Col md={4}>
+                  <Form.Group className="mb-3">
+                    <Form.Label className="small fw-bold">Amount (PHP)</Form.Label>
+                    <Form.Control 
+                      type="number" 
+                      placeholder="e.g. 1500" 
+                      value={retroData.amount}
+                      onChange={(e) => setRetroData({...retroData, amount: e.target.value})}
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={8}>
+                  <Form.Group className="mb-3">
+                    <Form.Label className="small fw-bold">Reason / Description</Form.Label>
+                    <Form.Control 
+                      type="text" 
+                      placeholder="e.g. Overtime backpay" 
+                      value={retroData.reason}
+                      onChange={(e) => setRetroData({...retroData, reason: e.target.value})}
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
+              <div className="text-end">
+                <Button 
+                  size="sm"
+                  className="rounded-pill px-4" 
+                  style={{ backgroundColor: '#D29191', border: 'none' }}
+                  onClick={handleAddRetro}
+                  disabled={!retroData.amount}
+                >
+                  Add Adjustment
+                </Button>
+              </div>
+            </Form>
+          </div>
+
+          <hr className="my-4" />
+
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <h6 className="fw-bold small mb-0 text-uppercase" style={{ letterSpacing: '1px' }}>Adjustment List</h6>
+            <Form.Check 
+              type="switch"
+              id="show-history-switch"
+              label={<span className="small text-muted">Show Processed History</span>}
+              checked={showHistory}
+              onChange={(e) => setShowHistory(e.target.checked)}
+            />
+          </div>
+          {adjustmentsLoading ? <div className="text-center py-3"><Spinner size="sm" /></div> : (
+            <div className="table-responsive" style={{ maxHeight: '250px' }}>
+              <Table bordered hover size="sm" style={{ fontSize: '11px' }}>
+                <thead className="bg-light">
+                  <tr>
+                    <th>Date</th>
+                    <th>Reason</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th className="text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employeeAdjustments.filter(a => showHistory || !a.is_applied).length === 0 ? (
+                    <tr><td colSpan="5" className="text-center text-muted py-3">No pending adjustments found.</td></tr>
+                  ) : employeeAdjustments.filter(a => showHistory || !a.is_applied).map((adj) => (
+                    <tr key={adj._id}>
+                      <td>{new Date(adj.created_at).toLocaleDateString()}</td>
+                      <td>{adj.reason}</td>
+                      <td className={`fw-bold ${adj.amount >= 0 ? 'text-success' : 'text-danger'}`}>
+                        ₱{Number(adj.amount).toLocaleString()}
+                      </td>
+                      <td>
+                        <Badge bg={adj.is_applied ? 'success-subtle' : 'warning-subtle'} className={adj.is_applied ? 'text-success border border-success' : 'text-warning border border-warning'}>
+                          {adj.is_applied ? 'PROCESSED' : 'PENDING'}
+                        </Badge>
+                      </td>
+                      <td className="text-center">
+                        {!adj.is_applied && (
+                          <Button 
+                            variant="link" 
+                            className="p-0 text-danger" 
+                            onClick={() => handleDeleteAdjustment(adj._id)}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          )}
+        </Modal.Body>
+        <Modal.Footer className="border-0 bg-light">
+          <Button variant="outline-secondary" className="rounded-pill px-4" onClick={() => setShowRetroModal(false)}>Cancel</Button>
+          <Button 
+            className="rounded-pill px-4" 
+            style={{ backgroundColor: '#D29191', border: 'none' }}
+            onClick={handleAddRetro}
+            disabled={!retroData.amount}
+          >
+            Save Adjustment
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 };

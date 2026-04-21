@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 
 from core.auth import CurrentUser, get_current_user, require_admin
@@ -10,6 +10,7 @@ from .service import PayrollProcessingService
 from .scheduler import PayrollSchedulerService
 from db.models import PayrollSnapshot, PayrollSchedule
 from core.database import db
+from bson import ObjectId
 import io
 import csv
 
@@ -32,6 +33,13 @@ class StatusUpdateRequest(BaseModel):
     """Schema for updating a snapshot's status and remarks."""
     status: str
     remarks: Optional[str] = None
+
+class ManualAdjustmentRequest(BaseModel):
+    """Request to add a retroactive adjustment."""
+    employee_id: str
+    employee_number: str
+    amount: float
+    reason: str
 
 class EmployeeReadiness(BaseModel):
     """Status of an employee's data before payroll processing."""
@@ -68,10 +76,84 @@ async def get_payroll_readiness():
     """Endpoint for Figma Wizard Step 2: Pre-flight check."""
     return await PayrollProcessingService.get_payroll_readiness()
 
+@router.get("/adjustments/{employee_id}")
+async def get_manual_adjustments(employee_id: str):
+    """Fetch all manual adjustments for a specific employee (both pending and applied)."""
+    collection = db["ManualAdjustments"]
+    cursor = collection.find({"employee_id": employee_id}).sort("created_at", -1)
+    results = []
+    async for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        results.append(doc)
+    return results
+
+@router.post("/adjustments")
+async def add_manual_adjustment(request: ManualAdjustmentRequest, user: CurrentUser = Depends(get_current_user)):
+    """Add a manual retroactive adjustment for an employee."""
+    collection = db["ManualAdjustments"]
+    adjustment = {
+        "employee_id": request.employee_id,
+        "employee_number": request.employee_number,
+        "amount": request.amount,
+        "reason": request.reason,
+        "is_applied": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await collection.insert_one(adjustment)
+    
+    await ActivityLogService.log_local_activity(
+        module="Payroll",
+        action="Added manual adjustment",
+        target_info=f"Emp: {request.employee_number} | Amount: {request.amount}",
+        user=user,
+        metadata={"amount": request.amount, "reason": request.reason}
+    )
+    return {"status": "success"}
+
+@router.delete("/adjustments/{adjustment_id}")
+async def delete_manual_adjustment(adjustment_id: str, user: CurrentUser = Depends(get_current_user)):
+    """Delete a manual adjustment (only if it hasn't been applied yet)."""
+    collection = db["ManualAdjustments"]
+    result = await collection.delete_one({"_id": ObjectId(adjustment_id), "is_applied": False})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=400, detail="Adjustment not found or already applied to a payslip.")
+    
+    await ActivityLogService.log_local_activity(
+        module="Payroll",
+        action="Deleted pending adjustment",
+        target_info=f"Adj ID: {adjustment_id}",
+        user=user
+    )
+    return {"status": "success"}
+
 @router.post("/run")
 async def run_payroll(request: PayrollRunRequest, user: CurrentUser = Depends(get_current_user)):
     try:
-        count = await PayrollProcessingService.run_full_payroll(request.start_date, request.end_date)
+        # 🚀 NEW: Link to Schedule for Arrears/Capital Policy
+        collection = db["PayrollSchedules"]
+        # Match schedule by exact start/end dates
+        schedule = await collection.find_one({
+            "period_start": request.start_date,
+            "period_end": request.end_date
+        })
+        
+        pay_date = schedule.get("pay_date") if schedule else None
+        
+        count = await PayrollProcessingService.run_full_payroll(
+            request.start_date, request.end_date, pay_date=pay_date
+        )
+
+        # Update schedule if found
+        if schedule:
+            await collection.update_one(
+                {"_id": schedule["_id"]},
+                {"$set": {
+                    "is_processed": True,
+                    "processed_at": datetime.now(timezone.utc),
+                    "snapshot_count": count
+                }}
+            )
+
         await ActivityLogService.log_local_activity(
             module="Payroll",
             action="Ran payroll for all active employees",
@@ -82,9 +164,11 @@ async def run_payroll(request: PayrollRunRequest, user: CurrentUser = Depends(ge
                 "end_date": request.end_date.isoformat(),
                 "processed_count": count,
                 "mode": "full",
+                "pay_date": pay_date.isoformat() if pay_date else None,
+                "cycle_name": schedule.get("cycle_name") if schedule else "Manual Run"
             },
         )
-        return {"status": "success", "processed_count": count}
+        return {"status": "success", "processed_count": count, "pay_date": pay_date}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -92,9 +176,30 @@ async def run_payroll(request: PayrollRunRequest, user: CurrentUser = Depends(ge
 async def run_selective_payroll(request: SelectivePayrollRequest, user: CurrentUser = Depends(get_current_user)):
     """Endpoint for Figma Payroll Wizard Step 2."""
     try:
+        # 🚀 NEW: Link to Schedule for Arrears/Capital Policy
+        collection = db["PayrollSchedules"]
+        schedule = await collection.find_one({
+            "period_start": request.start_date,
+            "period_end": request.end_date
+        })
+        
+        pay_date = schedule.get("pay_date") if schedule else None
+
         count = await PayrollProcessingService.run_selective_payroll(
-            request.start_date, request.end_date, request.employee_ids
+            request.start_date, request.end_date, request.employee_ids, pay_date=pay_date
         )
+
+        # Update schedule if found
+        if schedule:
+            await collection.update_one(
+                {"_id": schedule["_id"]},
+                {"$set": {
+                    "is_processed": True,
+                    "processed_at": datetime.now(timezone.utc),
+                    "snapshot_count": count
+                }}
+            )
+
         await ActivityLogService.log_local_activity(
             module="Payroll",
             action="Ran payroll for selected employees",
@@ -107,9 +212,11 @@ async def run_selective_payroll(request: SelectivePayrollRequest, user: CurrentU
                 "selected_count": len(request.employee_ids),
                 "employee_ids": request.employee_ids,
                 "mode": "selective",
+                "pay_date": pay_date.isoformat() if pay_date else None,
+                "cycle_name": schedule.get("cycle_name") if schedule else "Manual Run"
             },
         )
-        return {"status": "success", "processed_count": count}
+        return {"status": "success", "processed_count": count, "pay_date": pay_date}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
