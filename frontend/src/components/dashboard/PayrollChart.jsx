@@ -5,6 +5,7 @@ import axios from 'axios';
 
 const APPROVED_STATUSES = new Set(['approved', 'completed']);
 const DELAYED_STATUSES = new Set(['pending', 'delayed']);
+const REJECTED_STATUSES = new Set(['rejected', 'denied', 'declined']);
 
 const PayrollChart = () => {
   const [chartData, setChartData] = useState([]);
@@ -28,6 +29,7 @@ const PayrollChart = () => {
               label: processedDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
               totalPayout: 0,
               delayedPayout: 0,
+              rejectedPayout: 0,
             };
           }
 
@@ -36,6 +38,8 @@ const PayrollChart = () => {
             acc[isoDay].totalPayout += netPay;
           } else if (DELAYED_STATUSES.has(normalizedStatus)) {
             acc[isoDay].delayedPayout += netPay;
+          } else if (REJECTED_STATUSES.has(normalizedStatus)) {
+            acc[isoDay].rejectedPayout += netPay;
           }
           return acc;
         }, {});
@@ -43,10 +47,11 @@ const PayrollChart = () => {
         const formattedData = Object.values(grouped)
           .sort((a, b) => a.isoDay.localeCompare(b.isoDay))
           .slice(-7)
-          .map(({ label, totalPayout, delayedPayout }) => ({
+          .map(({ label, totalPayout, delayedPayout, rejectedPayout }) => ({
             name: label,
             totalPayout: Number(totalPayout.toFixed(2)),
             delayedPayout: Number(delayedPayout.toFixed(2)),
+            rejectedPayout: Number(rejectedPayout.toFixed(2)),
           }));
 
         setChartData(formattedData);
@@ -84,22 +89,29 @@ const PayrollChart = () => {
                 contentStyle={{ borderRadius: '10px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }}
                 formatter={(value, name) => [
                   `PHP ${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                  name === 'totalPayout' ? 'Total Payout' : 'Delayed Payout',
+                  name
                 ]}
               />
               <Bar
                 dataKey="totalPayout"
                 fill="#4B8B8B"
                 radius={[6, 6, 0, 0]}
-                barSize={28}
+                barSize={20}
                 name="Total Payout"
               />
               <Bar
                 dataKey="delayedPayout"
+                fill="#F4A261"
+                radius={[6, 6, 0, 0]}
+                barSize={20}
+                name="Delayed Payout"
+              />
+              <Bar
+                dataKey="rejectedPayout"
                 fill="#D29191"
                 radius={[6, 6, 0, 0]}
-                barSize={28}
-                name="Delayed Payout"
+                barSize={20}
+                name="Rejected Payout"
               />
             </BarChart>
           </ResponsiveContainer>

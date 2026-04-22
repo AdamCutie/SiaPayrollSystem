@@ -92,6 +92,7 @@ class PayrollSchedulerService:
     async def generate_full_year_schedule(cls, year: int, automation_on: bool = False):
         """
         Calculates and saves the 24 cycles for the given year to the database.
+        Implements 'Payroll in Arrears' (15-day delay/capital policy).
         """
         collection = db["PayrollSchedules"]
         # Clear existing for that year to avoid duplicates
@@ -101,11 +102,14 @@ class PayrollSchedulerService:
         schedules = []
 
         for month in range(1, 13):
-            # --- FIRST HALF ---
+            last_day_current = calendar.monthrange(year, month)[1]
+
+            # --- FIRST HALF (1st to 15th) ---
+            # Paid at the end of the current month
             start1 = datetime(year, month, 1)
-            end1 = datetime(year, month, 13)
+            end1 = datetime(year, month, 15)
             cutoff1 = cls.adjust_to_previous_working_day(end1.date(), holiday_dates)
-            payday1 = cls.adjust_to_previous_working_day(datetime(year, month, 15).date(), holiday_dates)
+            payday1 = cls.adjust_to_previous_working_day(datetime(year, month, last_day_current).date(), holiday_dates)
             
             schedules.append(PayrollSchedule(
                 year=year,
@@ -117,12 +121,16 @@ class PayrollSchedulerService:
                 automation_on=automation_on
             ))
 
-            # --- SECOND HALF ---
-            start2 = datetime(year, month, 14)
-            last_day = calendar.monthrange(year, month)[1]
-            end2 = datetime(year, month, last_day)
+            # --- SECOND HALF (16th to End) ---
+            # Paid on the 15th of the NEXT month
+            start2 = datetime(year, month, 16)
+            end2 = datetime(year, month, last_day_current)
             cutoff2 = cls.adjust_to_previous_working_day(end2.date(), holiday_dates)
-            payday2 = cls.adjust_to_previous_working_day(datetime(year, month, last_day).date(), holiday_dates)
+            
+            # Month/Year rollover for payday
+            next_month = month + 1 if month < 12 else 1
+            next_year = year if month < 12 else year + 1
+            payday2 = cls.adjust_to_previous_working_day(datetime(next_year, next_month, 15).date(), holiday_dates)
 
             schedules.append(PayrollSchedule(
                 year=year,
@@ -174,7 +182,8 @@ class PayrollSchedulerService:
             # 1. Run the actual payroll logic
             count = await PayrollProcessingService.run_full_payroll(
                 sched["period_start"], 
-                sched["period_end"]
+                sched["period_end"],
+                pay_date=sched.get("pay_date")
             )
             
             # 2. Mark as processed so we don't run it again

@@ -18,14 +18,43 @@ class HREmployeeRead(BaseModel):
     id: PyObjectId = Field(alias="_id")
     employeeId: str  # e.g., "23-2211"
     firstName: str
+    middleName: Optional[str] = None
     lastName: str
     email: EmailStr
+    contactNo: Optional[str] = None
+    address: Optional[str] = None
+    street: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    age: Optional[int] = None
+    birthDate: Optional[datetime] = None
+    gender: Optional[str] = None
+    civilStatus: Optional[str] = None
     department: str
     role: str
+    position: Optional[str] = None
     isActive: bool
     contractType: str = "Provisionary" # "Regular" or "Provisionary"
     baseSalary: Money = 0.0 # Discovered directly in Employees collection
     hiredDate: Optional[datetime] = None
+    applicantId: Optional[PyObjectId] = None
+    sssNumber: Optional[str] = None
+    philHealthNumber: Optional[str] = None
+    pagIbigNumber: Optional[str] = None
+    resignationStatus: Optional[str] = None
+    resignationDate: Optional[datetime] = None
+    resignationReason: Optional[str] = None
+
+class HRRoleSalaryRead(BaseModel):
+    """Schema for reading role-based salaries from synced HR DB"""
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: PyObjectId = Field(alias="_id")
+    roleName: str
+    department: str
+    baseSalary: Money
+    isActive: bool
 
 class HRPayrollConfigRead(BaseModel):
     """Schema for reading salary configurations from legacy HR DB"""

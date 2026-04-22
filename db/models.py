@@ -20,12 +20,25 @@ class PayrollSnapshot(BaseModel):
     employee_number: str  # e.g., "23-2450"
     full_name: str
     department: Optional[str] = None
+    
+    # 🚀 NEW: Statutory IDs for the Payslip
+    sss_number: Optional[str] = None
+    philhealth_number: Optional[str] = None
+    pagibig_number: Optional[str] = None
 
     # Financial Data (The values at the time of processing)
     basic_salary: float
     gross_pay: float
     net_pay: float
     
+    # 🚀 NEW: Detailed Rates and Hours (Figma/PDF inspired)
+    hourly_rate: float = 0.0
+    basic_pay_hours: float = 0.0
+    total_overtime_hours: float = 0.0
+    total_nd_hours: float = 0.0
+    total_nd_pay: float = 0.0
+    ytd_data: dict = Field(default_factory=dict)
+
     # 🚀 Itemized Earnings
     housing_allowance: float = 0.0
     transport_allowance: float = 0.0
@@ -35,6 +48,7 @@ class PayrollSnapshot(BaseModel):
     excess_days_pay: float = 0.0
     holiday_pay: float = 0.0
     special_day_pay: float = 0.0
+    retro_pay: float = 0.0
 
     # 🚀 Itemized Deductions
     sss_deduction: float = 0.0
@@ -49,9 +63,13 @@ class PayrollSnapshot(BaseModel):
     withholding_tax: float = 0.0
     absence_deduction: float = 0.0
     total_loans: float = 0.0
+    sss_loan: float = 0.0
+    pagibig_loan: float = 0.0
+    company_loan: float = 0.0
     total_penalties: float = 0.0
     total_deductions: float
     undertime_deduction: float = 0.0
+    retro_items: List[dict] = Field(default_factory=list)
 
     total_late_hours: float = 0.0
     late_penalty_rate: float = 0.0
@@ -67,39 +85,10 @@ class PayrollSnapshot(BaseModel):
     # Payroll Metadata
     pay_period_start: datetime
     pay_period_end: datetime
+    pay_date: Optional[datetime] = None
     processed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: str = "Pending" # Approved, Rejected, Pending, Completed, Delayed
     remarks: Optional[str] = None # Added for Finance notes
-
-class AttendanceLog(BaseModel):
-    """
-    Model for the Employee Work Log (Figma: adminDashboardPage.png bottom table).
-    """
-    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
-    
-    id: Optional[PyObjectId] = Field(default=None, alias="_id")
-    employee_id: str
-    employee_number: str
-    full_name: str
-    department: str
-    position: str
-    date: datetime
-    duration_hours: float
-    status: str = "Pending" # Approved, Pending, Rejected
-
-class LeaveRequest(BaseModel):
-    """Matches Figma: Leave.png table"""
-    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
-    
-    id: Optional[PyObjectId] = Field(default=None, alias="_id")
-    employee_id: str
-    employee_number: str
-    full_name: str
-    leave_type: str # Sick, Vacation, Maternity, etc.
-    start_date: datetime
-    end_date: datetime
-    status: str = "Pending" # Approved, Rejected, Pending
-    is_paid: bool = True
 
 class Holiday(BaseModel):
     """Matches Figma: Holiday.png table"""
@@ -174,4 +163,20 @@ class PayrollSchedule(BaseModel):
     automation_on: bool = False # The ON/OFF toggle
     processed_at: Optional[datetime] = None
     snapshot_count: int = 0
+
+class ManualAdjustment(BaseModel):
+    """
+    Manual Retroactive Adjustment (Concentrix Style).
+    Stored in sia_payroll_db.
+    """
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+    
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    employee_id: str
+    employee_number: str
+    amount: float
+    reason: str
+    is_applied: bool = False
+    applied_on_snapshot_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

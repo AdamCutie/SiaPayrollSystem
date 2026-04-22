@@ -6,8 +6,8 @@ from core.auth import CurrentUser, get_current_user
 from core.auth import require_admin
 from core.config import settings
 from core.security import create_access_token
-from core.database import hr_db
-from integrations.hr.adapter import EMPLOYEES_COLLECTION
+from core.database import db
+from integrations.hr.adapter import SYNCED_HR_EMPLOYEES_COLLECTION
 from .service import AuthUserService
 
 router = APIRouter(prefix="/auth", tags=["Security & Authentication"])
@@ -21,22 +21,23 @@ class Token(BaseModel):
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     """
     Standard OAuth2 Login.
-    In this system, we check the legacy HR system's 'email' field.
+    In this system, we check our local synced HR 'email' field.
 
     Passwords are stored in the payroll database (AuthUsers) to keep the HR DB read-only.
     If ALLOW_PASSWORDLESS_LOGIN is enabled, users without a password record can still log in (dev-only).
     """
-    hr_coll = hr_db[EMPLOYEES_COLLECTION]
-    # 1. Find user by email (from legacy system)
-    user = await hr_coll.find_one({"email": form_data.username})
+    hr_coll = db[SYNCED_HR_EMPLOYEES_COLLECTION]
+    # 1. Find user by email in our synced mirror
+    sync_doc = await hr_coll.find_one({"payload.email": form_data.username})
     
-    if not user:
+    if not sync_doc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user = sync_doc.get("payload", {})
     email = user.get("email", "")
     employee_id = str(user.get("_id", ""))
 
@@ -93,16 +94,17 @@ class SetPasswordRequest(BaseModel):
 async def set_password(request: SetPasswordRequest, _: object = Depends(require_admin)):
     """
     Admin-only: sets/updates a user's password in the payroll DB (AuthUsers).
-    The user must exist in the legacy HR Employees collection.
+    The user must exist in our synced HR Employees mirror.
     """
-    hr_coll = hr_db[EMPLOYEES_COLLECTION]
-    hr_user = await hr_coll.find_one({"email": str(request.email)})
-    if not hr_user:
+    hr_coll = db[SYNCED_HR_EMPLOYEES_COLLECTION]
+    sync_doc = await hr_coll.find_one({"payload.email": str(request.email)})
+    if not sync_doc:
         raise HTTPException(status_code=404, detail="HR user not found for the given email.")
 
+    user = sync_doc.get("payload", {})
     await AuthUserService.upsert_password(
         email=str(request.email),
-        employee_id=str(hr_user.get("_id", "")),
+        employee_id=str(user.get("_id", "")),
         plain_password=request.new_password,
     )
     return {"message": "Password set successfully."}

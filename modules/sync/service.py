@@ -14,7 +14,7 @@ from modules.activity_logs.service import ActivityLogService
 
 SYNC_TARGETS = {
     "employees": ("Employees", "SyncedHREmployees"),
-    "payroll_configurations": ("PayrollConfigurations", "SyncedHRPayrollConfigurations"),
+    "role_salaries": ("RoleSalaries", "SyncedHRRoleSalaries"),
     "attendance": ("Attendance", "SyncedHRAttendance"),
     "leaves": ("Leaves", "SyncedHRLeaves"),
     "overtime_requests": ("OvertimeRequests", "SyncedHROvertimeRequests"),
@@ -259,10 +259,18 @@ class HRSyncService:
             upsert=True,
         )
         if status == "success":
+            # Generate a helpful summary for the Activity Log target_info
+            total_inserted = sum(r.get("inserted", 0) for r in results)
+            total_updated = sum(r.get("updated", 0) for r in results)
+            total_archived = sum(r.get("archived", 0) for r in results)
+            total_recovered = sum(r.get("recovered", 0) for r in results)
+            
+            summary_info = f"{', '.join(sync_targets)} | Ins: {total_inserted}, Upd: {total_updated}, Arch: {total_archived}, Rec: {total_recovered}"
+
             await ActivityLogService.log_local_activity(
                 module="Synchronization",
                 action="Completed HR synchronization",
-                target_info=", ".join(sync_targets),
+                target_info=summary_info,
                 actor_name="System",
                 metadata={
                     "mode": mode,

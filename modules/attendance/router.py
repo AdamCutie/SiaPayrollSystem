@@ -3,7 +3,7 @@ from core.auth import require_admin
 from core.database import db
 from db.models import Holiday
 from integrations.hr.adapter import (
-    get_synced_active_employees,
+    get_all_active_employees,
     get_synced_employee_by_id,
     get_synced_employee_payroll_config,
     get_synced_attendance_list,
@@ -251,20 +251,29 @@ async def get_overtime_requests(
         raise HTTPException(status_code=500, detail=f"Failed to fetch overtime: {str(e)}")
     
     enriched = []
+    
+    # 🚀 OPTIMIZATION: Fetch employees and cache them OUTSIDE the loop
+    employees = await get_all_active_employees()
+    employee_by_id = {str(emp.employeeId).strip(): emp for emp in employees}
+    config_cache = {}
+
     for req in hr_requests:
         if status and req.get("status") != status: continue
         req["hours"] = parse_ot_hours(req.get("overtimeWorked", "0:0:0"))
         req["full_name"] = req.get("fullName")
         try:
-            employees = await get_synced_active_employees()
-            emp = next((e for e in employees if e.employeeId == req.get("employeeId")), None)
+            emp_no = str(req.get("employeeId", "")).strip()
+            emp = employee_by_id.get(emp_no)
             if emp:
-                config = await get_synced_employee_payroll_config(emp.id, emp.employeeId, f"{emp.lastName}, {emp.firstName}")
+                if emp.id not in config_cache:
+                    config_cache[emp.id] = await get_synced_employee_payroll_config(emp.id, emp.employeeId, f"{emp.lastName}, {emp.firstName}")
+                config = config_cache[emp.id]
                 if config:
-                    hourly_rate = (config.basicSalary / 26.0) / 8.0
+                    hourly_rate = (float(config.basicSalary) / 26.0) / 8.0
                     req["rate_per_hour"] = round(hourly_rate * 1.25, 2)
                     req["total_pay"] = round(req["hours"] * req["rate_per_hour"], 2)
-        except: pass
+        except Exception as e: 
+            print(f"Error calculating overtime for {req.get('employeeId')}: {e}")
         enriched.append(req)
     return enriched
 
@@ -303,7 +312,7 @@ async def get_penalty_logs(
             start_date = end_date - timedelta(days=30)
 
         logs = await get_synced_attendance_list(emp_number, start_date, end_date)
-        employees = await get_synced_active_employees()
+        employees = await get_all_active_employees()
         employee_by_number = {str(emp.employeeId).strip(): emp for emp in employees}
         config_cache = {}
         records = []
@@ -370,6 +379,12 @@ async def get_undertime_records(
         raise HTTPException(status_code=500, detail=f"Failed to fetch undertime: {str(e)}")
     
     enriched = []
+
+    # 🚀 OPTIMIZATION: Fetch employees and cache them OUTSIDE the loop
+    employees = await get_all_active_employees()
+    employee_by_id = {str(emp.employeeId).strip(): emp for emp in employees}
+    config_cache = {}
+
     for rec in hr_records:
         # Use 'hoursUndertime' from HR payload
         rec["hours"] = round(float(rec.get("hoursUndertime", 0)), 2)
@@ -381,14 +396,17 @@ async def get_undertime_records(
                 rec["rate_per_hour"] = round(payload_rate, 2)
                 rec["total_deduction"] = round(rec["hours"] * payload_rate, 2)
             else:
-                employees = await get_synced_active_employees()
-                emp = next((e for e in employees if e.employeeId == rec.get("employeeId")), None)
+                emp_no = str(rec.get("employeeId", "")).strip()
+                emp = employee_by_id.get(emp_no)
                 if emp:
-                    config = await get_synced_employee_payroll_config(emp.id, emp.employeeId, f"{emp.lastName}, {emp.firstName}")
+                    if emp.id not in config_cache:
+                        config_cache[emp.id] = await get_synced_employee_payroll_config(emp.id, emp.employeeId, f"{emp.lastName}, {emp.firstName}")
+                    config = config_cache[emp.id]
                     if config:
-                        hourly_rate = (config.basicSalary / 26.0) / 8.0
+                        hourly_rate = (float(config.basicSalary) / 26.0) / 8.0
                         rec["rate_per_hour"] = round(hourly_rate, 2)
                         rec["total_deduction"] = round(rec["hours"] * hourly_rate, 2)
-        except: pass
+        except Exception as e:
+            print(f"Error calculating undertime for {rec.get('employeeId')}: {e}")
         enriched.append(rec)
     return enriched

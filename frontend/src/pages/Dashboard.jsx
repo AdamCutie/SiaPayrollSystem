@@ -69,16 +69,22 @@ const Dashboard = () => {
       </Row>
 
       <Row className="g-4 mb-4">
-        <Col md={6}>
-          <div className="bg-white p-4 rounded-4 shadow-sm text-center">
+        <Col md={4}>
+          <div className="bg-white p-4 rounded-4 shadow-sm text-center border-bottom border-4 border-success">
             <small className="text-muted text-uppercase" style={{ fontSize: '12px' }}>Total Payout</small>
             <h2 className="fw-bold m-0 mt-1">PHP {stats.payouts.total_payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h2>
           </div>
         </Col>
-        <Col md={6}>
-          <div className="bg-white p-4 rounded-4 shadow-sm text-center">
+        <Col md={4}>
+          <div className="bg-white p-4 rounded-4 shadow-sm text-center border-bottom border-4 border-warning">
             <small className="text-muted text-uppercase" style={{ fontSize: '12px' }}>Delayed Payout</small>
-            <h2 className="fw-bold m-0 mt-1 text-danger">PHP {stats.payouts.delayed_payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h2>
+            <h2 className="fw-bold m-0 mt-1 text-warning">PHP {stats.payouts.delayed_payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h2>
+          </div>
+        </Col>
+        <Col md={4}>
+          <div className="bg-white p-4 rounded-4 shadow-sm text-center border-bottom border-4 border-danger">
+            <small className="text-muted text-uppercase" style={{ fontSize: '12px' }}>Rejected Payout</small>
+            <h2 className="fw-bold m-0 mt-1 text-danger">PHP {stats.payouts.rejected_payout.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h2>
           </div>
         </Col>
       </Row>

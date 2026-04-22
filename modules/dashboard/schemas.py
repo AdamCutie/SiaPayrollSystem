@@ -18,6 +18,7 @@ class PayoutStats(BaseModel):
     """Data for the 'TOTAL PAYOUT' and 'DELAYED PAYOUT' cards in Figma"""
     total_payout: float
     delayed_payout: float
+    rejected_payout: float
     average_salary: float
 
 class DashboardOverview(BaseModel):

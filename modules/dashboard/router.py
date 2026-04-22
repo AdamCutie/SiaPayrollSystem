@@ -41,7 +41,7 @@ async def get_dashboard_overview():
     payroll_coll = db["PayrollSnapshots"]
     # MongoDB Aggregation to sum up all net_pays from past APPROVED or COMPLETED runs
     pipeline = [
-        {"$match": {"status": {"$regex": "^(Approved|Completed)$", "$options": "i"}}},
+        {"$match": {"status": {"$regex": "^\s*(Approved|Completed)\s*$", "$options": "i"}}},
         {"$group": {
             "_id": None, 
             "total": {"$sum": "$net_pay"}, 
@@ -54,11 +54,18 @@ async def get_dashboard_overview():
     avg_salary = payout_data[0]["avg"] if payout_data else 0.0
 
     delayed_pipeline = [
-        {"$match": {"status": {"$regex": "^(Pending|Delayed)$", "$options": "i"}}},
+        {"$match": {"status": {"$regex": "^\s*(Pending|Delayed)\s*$", "$options": "i"}}},
         {"$group": {"_id": None, "total": {"$sum": "$net_pay"}}},
     ]
     delayed_data = await payroll_coll.aggregate(delayed_pipeline).to_list(1)
     delayed_payout = delayed_data[0]["total"] if delayed_data else 0.0
+
+    rejected_pipeline = [
+        {"$match": {"status": {"$regex": "^\s*(Rejected|Declined)\s*$", "$options": "i"}}},
+        {"$group": {"_id": None, "total": {"$sum": "$net_pay"}}},
+    ]
+    rejected_data = await payroll_coll.aggregate(rejected_pipeline).to_list(1)
+    rejected_payout = rejected_data[0]["total"] if rejected_data else 0.0
 
     # 3. "Approvals" work queue (real data)
     approvals_requested = 0
@@ -70,7 +77,7 @@ async def get_dashboard_overview():
     p_total = await payroll_coll.count_documents({})
     p_app = await payroll_coll.count_documents({"status": {"$regex": "^(Approved|Completed)$", "$options": "i"}})
     p_pen = await payroll_coll.count_documents({"status": {"$regex": "^(Pending|Delayed)$", "$options": "i"}})
-    p_rej = await payroll_coll.count_documents({"status": {"$regex": "^(Rejected)$", "$options": "i"}})
+    p_rej = await payroll_coll.count_documents({"status": {"$regex": "^(Rejected|Declined)$", "$options": "i"}})
 
     approvals_requested += p_total
     approvals_approved += p_app
@@ -108,6 +115,19 @@ async def get_dashboard_overview():
     approvals_pending += o_pen
     approvals_rejected += o_rej
 
+    # 3e. Fetch Recent Rejected/Declined Payroll for Dashboard Alerts
+    rejected_cursor = payroll_coll.find({"status": {"$regex": "^(Rejected|Declined)$", "$options": "i"}}).sort("processed_at", -1).limit(5)
+    recent_rejections = []
+    async for doc in rejected_cursor:
+        recent_rejections.append({
+            "id": str(doc["_id"]),
+            "employee_number": doc["employee_number"],
+            "full_name": doc["full_name"],
+            "net_pay": doc["net_pay"],
+            "remarks": doc.get("remarks"),
+            "processed_at": doc["processed_at"]
+        })
+
     # 🚀 REMOVED: Attendance Logs (HR) are no longer counted in Approval Status
 
     # 4. Return Combined Stats
@@ -126,7 +146,9 @@ async def get_dashboard_overview():
         "payouts": {
             "total_payout": round(total_payout, 2),
             "delayed_payout": round(delayed_payout, 2),
+            "rejected_payout": round(rejected_payout, 2),
             "average_salary": round(avg_salary, 2)
         },
         "departments": departments,
+        "recent_rejections": recent_rejections
     }

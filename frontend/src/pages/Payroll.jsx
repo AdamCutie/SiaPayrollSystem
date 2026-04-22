@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Form, Button, Table, Badge, Spinner, Alert, Modal } from 'react-bootstrap';
 import axios from 'axios';
-import { Search, Check, Download, Settings, Users, FileText, Eye, Calendar, Zap, ZapOff } from 'lucide-react';
+import { Search, Check, Download, Settings, Users, FileText, Eye, Calendar, Zap, ZapOff, Trash2 } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Payroll = () => {
@@ -22,11 +22,20 @@ const Payroll = () => {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [configData, setConfigData] = useState({});
 
+  // Retro Adjustment State
+  const [showRetroModal, setShowRetroModal] = useState(false);
+  const [retroData, setRetroData] = useState({ amount: '', reason: '' });
+  const [retroEmployee, setRetroEmployee] = useState(null);
+  const [employeeAdjustments, setEmployeeAdjustments] = useState([]);
+  const [adjustmentsLoading, setAdjustmentsLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
   // Payslips State
   const [payrollHistory, setPayrollHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [payslipSearch, setPayslipSearch] = useState('');
   const [historyPeriod, setHistoryPeriod] = useState('today'); // 'all', 'today', 'yesterday'
+  const [selectedPayslipMonth, setSelectedPayslipMonth] = useState('');
   const [selectedPayslip, setSelectedPayslip] = useState(null);
   const [showPayslipModal, setShowPayslipModal] = useState(false);
 
@@ -60,7 +69,7 @@ const Payroll = () => {
     } else if (view === 'schedule') {
       fetchSchedule();
     }
-  }, [view, historyPeriod]);
+  }, [view, historyPeriod, selectedPayslipMonth]);
 
   const fetchEmployees = async () => {
     try {
@@ -82,9 +91,17 @@ const Payroll = () => {
     try {
       setHistoryLoading(true);
       let url = 'http://localhost:8000/payroll/processing/history';
-      if (historyPeriod !== 'all') {
-        url += `?period=${historyPeriod}`;
+      const params = [];
+      if (selectedPayslipMonth) {
+        params.push(`month=${selectedPayslipMonth}`);
+      } else if (historyPeriod && historyPeriod !== 'all') {
+        params.push(`period=${historyPeriod}`);
       }
+      
+      if (params.length > 0) {
+        url += `?${params.join('&')}`;
+      }
+      
       const response = await axios.get(url);
       setPayrollHistory(response.data);
       setHistoryLoading(false);
@@ -117,6 +134,46 @@ const Payroll = () => {
       fetchSchedule(); 
     } catch (err) {
       alert("Failed to update automation status.");
+    }
+  };
+
+  const fetchEmployeeAdjustments = async (employeeId) => {
+    try {
+      setAdjustmentsLoading(true);
+      const response = await axios.get(`http://localhost:8000/payroll/processing/adjustments/${employeeId}`);
+      setEmployeeAdjustments(response.data);
+      setAdjustmentsLoading(false);
+    } catch (err) {
+      console.error("Failed to fetch adjustments", err);
+      setAdjustmentsLoading(false);
+    }
+  };
+
+  const handleAddRetro = async () => {
+    if (!retroEmployee || !retroData.amount) return;
+    try {
+      await axios.post('http://localhost:8000/payroll/processing/adjustments', {
+        employee_id: retroEmployee.id,
+        employee_number: retroEmployee.employee_id,
+        amount: parseFloat(retroData.amount),
+        reason: retroData.reason || 'Manual Adjustment'
+      });
+      // Refresh the list immediately
+      fetchEmployeeAdjustments(retroEmployee.id);
+      setRetroData({ amount: '', reason: '' });
+      alert("Retroactive adjustment added! It will be applied on the next payroll run for this employee.");
+    } catch (err) {
+      alert("Failed to add adjustment.");
+    }
+  };
+
+  const handleDeleteAdjustment = async (adjId) => {
+    if (!window.confirm("Are you sure you want to delete this pending adjustment?")) return;
+    try {
+      await axios.delete(`http://localhost:8000/payroll/processing/adjustments/${adjId}`);
+      fetchEmployeeAdjustments(retroEmployee.id);
+    } catch (err) {
+      alert(err.response?.data?.detail || "Failed to delete adjustment.");
     }
   };
 
@@ -436,14 +493,31 @@ const Payroll = () => {
                    ₱{((emp.sssLoan || 0) + (emp.pagIbigLoan || 0) + (emp.companyLoan || 0)).toLocaleString()}
                 </td>
                 <td className="text-end">
-                  <Button 
-                    variant="link" 
-                    className="p-0 text-decoration-none" 
-                    style={{ color: '#D29191' }}
-                    onClick={() => handleEditConfig(emp)}
-                  >
-                    <Eye size={18} />
-                  </Button>
+                  <div className="d-flex justify-content-end gap-2">
+                    <Button 
+                      variant="link" 
+                      className="p-0 text-decoration-none" 
+                      style={{ color: '#D29191' }}
+                      onClick={() => {
+                        setRetroEmployee(emp);
+                        setRetroData({ amount: '', reason: '' });
+                        fetchEmployeeAdjustments(emp.id);
+                        setShowRetroModal(true);
+                      }}
+                      title="Add Retroactive Adjustment"
+                    >
+                      <Zap size={18} />
+                    </Button>
+                    <Button 
+                      variant="link" 
+                      className="p-0 text-decoration-none" 
+                      style={{ color: '#D29191' }}
+                      onClick={() => handleEditConfig(emp)}
+                      title="View Profile"
+                    >
+                      <Eye size={18} />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -549,11 +623,17 @@ const Payroll = () => {
               <Col md={3}>
                 <Form.Group>
                   <Form.Label className="small text-muted">Withholding Tax</Form.Label>
-                  <Form.Control type="text" value="Auto Computed" readOnly className="bg-light text-muted" />
+                  <Form.Control 
+                    type="text" 
+                    value="Payroll Calculation" 
+                    readOnly 
+                    className="bg-light fw-bold text-center" 
+                    style={{ color: '#D29191', fontSize: '12px' }} 
+                  />
                 </Form.Group>
               </Col>
-            </Row>
-            {(configData.sssEmployeeShare > 0 || configData.sssMPFEmployeeShare > 0) && (
+              </Row>
+              {(configData.sssEmployeeShare > 0 || configData.sssMPFEmployeeShare > 0) && (
               <div className="mt-2 mb-3 p-3 rounded-3 bg-light border">
                 <small className="d-block text-muted fw-bold mb-2">SSS 2025 Breakdown</small>
                 <Row>
@@ -574,11 +654,10 @@ const Payroll = () => {
                   Employer-side amounts are tracked separately: Regular SSS, EC, and MPF employer shares are not deducted from employee pay.
                 </small>
               </div>
-            )}
-            <small className="d-block text-muted mt-n2 mb-3">
-              Withholding tax is not shown as a fixed preview here because it depends on the actual taxable pay for the selected cutoff, including attendance, overtime, absences, and taxable allowances.
-            </small>
-
+              )}
+              <small className="d-block text-muted mt-n2 mb-3">
+                Withholding tax is not displayed as a fixed amount in the profile because it is <strong>dynamically calculated</strong> during each payroll run. The exact amount depends on the employee's actual taxable earnings for that period (including basic pay, overtime, night differential, and absences).
+              </small>
             {/* --- SECTION 3: LOANS & RATES --- */}
             <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger d-flex justify-content-between align-items-center">
               3. Active Loans & Penalty Rates
@@ -671,34 +750,42 @@ const Payroll = () => {
         </div>
       </div>
 
-      <div className="bg-light p-1 rounded-pill d-inline-flex gap-1 mb-4 shadow-sm border">
-        <Button
-          variant={historyPeriod === 'today' ? 'secondary' : 'light'}
-          size="sm"
-          className="rounded-pill px-3 border-0"
-          onClick={() => setHistoryPeriod('today')}
-          style={{ fontSize: '12px', fontWeight: historyPeriod === 'today' ? '700' : 'normal' }}
-        >
-          Today
-        </Button>
-        <Button
-          variant={historyPeriod === 'yesterday' ? 'secondary' : 'light'}
-          size="sm"
-          className="rounded-pill px-3 border-0"
-          onClick={() => setHistoryPeriod('yesterday')}
-          style={{ fontSize: '12px', fontWeight: historyPeriod === 'yesterday' ? '700' : 'normal' }}
-        >
-          Yesterday
-        </Button>
-        <Button
-          variant={historyPeriod === 'all' ? 'secondary' : 'light'}
-          size="sm"
-          className="rounded-pill px-3 border-0"
-          onClick={() => setHistoryPeriod('all')}
-          style={{ fontSize: '12px', fontWeight: historyPeriod === 'all' ? '700' : 'normal' }}
-        >
-          All Time
-        </Button>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div className="d-flex gap-2">
+          {[
+            { label: 'Today', value: 'today' },
+            { label: 'Yesterday', value: 'yesterday' },
+            { label: 'Last 7 Days', value: 'lastweek' },
+            { label: 'All Time', value: 'all' }
+          ].map((btn) => (
+            <Button
+              key={btn.value}
+              onClick={() => { setHistoryPeriod(btn.value); setSelectedPayslipMonth(''); }}
+              className="rounded-pill px-4 shadow-sm border-0"
+              style={{ 
+                backgroundColor: !selectedPayslipMonth && historyPeriod === btn.value ? '#D29191' : '#FFFFFF',
+                color: !selectedPayslipMonth && historyPeriod === btn.value ? 'white' : '#A08E8E',
+                fontWeight: '600', fontSize: '13px'
+              }}
+            >
+              {btn.label}
+            </Button>
+          ))}
+        </div>
+
+        <div style={{ width: '200px' }}>
+          <Form.Select 
+            value={selectedPayslipMonth} 
+            onChange={(e) => { setSelectedPayslipMonth(e.target.value); setHistoryPeriod(''); }}
+            className="rounded-pill border-0 shadow-sm px-4"
+            style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+          >
+            <option value="">Specific Month</option>
+            {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
+              <option key={m} value={idx + 1}>{m}</option>
+            ))}
+          </Form.Select>
+        </div>
       </div>
 
       <div className="table-responsive">
@@ -751,272 +838,471 @@ const Payroll = () => {
         </Table>
       </div>
 
-      <Modal show={showPayslipModal} onHide={() => setShowPayslipModal(false)} size="md" centered>
-        <Modal.Header closeButton className="border-0">
-          <Modal.Title className="fw-bold w-100 text-center" style={{ color: '#5A4343' }}>
-            PAYSLIP
+      <Modal show={showPayslipModal} onHide={() => setShowPayslipModal(false)} size="xl" centered scrollable>
+        <Modal.Header closeButton className="border-0 bg-light">
+          <Modal.Title className="fw-bold w-100 text-center text-uppercase" style={{ color: '#5A4343', letterSpacing: '1px' }}>
+            Electronic Salary Statement
           </Modal.Title>
         </Modal.Header>
-        <Modal.Body className="px-4 pb-5">
+        <Modal.Body className="p-0">
           {selectedPayslip && (
-            <div id="printable-payslip">
-              <div className="text-center mb-4 pb-3 border-bottom">
-                <h6 className="fw-bold mb-1">Sia Payroll System</h6>
-                <small className="text-muted">Electronic Salary Statement</small>
+            <div id="printable-payslip" className="p-4" style={{ backgroundColor: '#fff', color: '#000', fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
+              {/* --- HEADER SECTION --- */}
+              <div className="text-center mb-4">
+                <h4 className="fw-bold mb-1">Sia Payroll System</h4>
+                <div className="text-muted small">
+                  Payslip for the Period {formatDateLabel(selectedPayslip.pay_period_start)} - {formatDateLabel(selectedPayslip.pay_period_end)}
+                </div>
+                {selectedPayslip.pay_date && (
+                  <div className="fw-bold small text-primary mt-1">
+                    Scheduled Payday: {formatDateLabel(selectedPayslip.pay_date)}
+                  </div>
+                )}
               </div>
 
-              <Row className="mb-4">
-                <Col xs={6}>
-                  <small className="d-block text-muted text-uppercase fw-bold" style={{ fontSize: '10px' }}>Employee Name</small>
-                  <span className="fw-bold">{selectedPayslip.full_name}</span>
-                </Col>
-                <Col xs={6} className="text-end">
-                  <small className="d-block text-muted text-uppercase fw-bold" style={{ fontSize: '10px' }}>Employee No.</small>
-                  <span className="fw-bold">{selectedPayslip.employee_number}</span>
-                </Col>
-              </Row>
-
-              <div className="p-3 bg-light rounded-3 mb-4">
-                <Row>
-                  <Col xs={6}>
-                    <small className="d-block text-muted" style={{ fontSize: '11px' }}>Pay Period</small>
-                    <span style={{ fontSize: '13px' }}>{formatDateLabel(selectedPayslip.pay_period_start)} - {formatDateLabel(selectedPayslip.pay_period_end)}</span>
+              <div className="border border-dark mb-4 p-3 bg-light">
+                <Row className="g-3" style={{ fontSize: '12px' }}>
+                  <Col md={4}>
+                    <div className="mb-2"><strong>Employee Code:</strong> <span className="ms-1">{selectedPayslip.employee_number}</span></div>
+                    <div><strong>Employee Name:</strong> <span className="ms-1 text-uppercase">{selectedPayslip.full_name}</span></div>
                   </Col>
-                  <Col xs={6} className="text-end">
-                    <small className="d-block text-muted" style={{ fontSize: '11px' }}>Department</small>
-                    <span style={{ fontSize: '13px' }}>{selectedPayslip.department || 'N/A'}</span>
+                  <Col md={4}>
+                    <div className="mb-2"><strong>Designation:</strong> <span className="ms-1">{selectedPayslip.department || 'Staff'}</span></div>
+                    <div><strong>Hourly Salary:</strong> <span className="ms-1">{selectedPayslip.hourly_rate ? Number(selectedPayslip.hourly_rate).toFixed(2) : '---'}</span></div>
+                  </Col>
+                  <Col md={4}>
+                    <div className="mb-2"><strong>SSS No:</strong> <span className="ms-1">{selectedPayslip.sss_number || '---'}</span></div>
+                    <div className="mb-2"><strong>Phil Health No:</strong> <span className="ms-1">{selectedPayslip.philhealth_number || '---'}</span></div>
+                    <div><strong>Pag-IBIG No:</strong> <span className="ms-1">{selectedPayslip.pagibig_number || '---'}</span></div>
+                  </Col>                </Row>
+              </div>
+
+              {/* --- MAIN EARNINGS & DEDUCTIONS TABLE --- */}
+              <div className="border border-dark mb-4">
+                <Row className="g-0">
+                  {/* EARNINGS COLUMN */}
+                  <Col md={6} className="border-end border-dark">
+                    <div className="bg-dark text-white p-1 text-center fw-bold small">EARNINGS</div>
+                    <div className="d-flex border-bottom border-dark bg-light fw-bold small p-1">
+                      <div className="flex-grow-1">Description</div>
+                      <div className="text-end" style={{ width: '80px' }}>Hrs</div>
+                      <div className="text-end" style={{ width: '100px' }}>Total</div>
+                    </div>
+
+                    {/* TAXABLE EARNINGS */}
+                    <div className="bg-dark text-white p-1 fw-bold" style={{ fontSize: '10px' }}>TAXABLE EARNINGS</div>
+                    <div className="p-2" style={{ minHeight: '150px', fontSize: '12px' }}>
+                      <div className="d-flex mb-1">
+                        <div className="flex-grow-1">BASIC PAY</div>
+                        <div className="text-end" style={{ width: '80px' }}>---</div>
+                        <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.basic_salary).replace('PHP ', '')}</div>
+                      </div>
+                      {selectedPayslip.total_overtime > 0 && (
+                        <div className="d-flex mb-1">
+                          <div className="flex-grow-1">OVERTIME PAY</div>
+                          <div className="text-end" style={{ width: '80px' }}>{selectedPayslip.total_overtime_hours ? Number(selectedPayslip.total_overtime_hours).toFixed(2) : '---'}</div>
+                          <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.total_overtime).replace('PHP ', '')}</div>
+                        </div>
+                      )}
+                      {selectedPayslip.total_nd_pay > 0 && (
+                        <div className="d-flex mb-1">
+                          <div className="flex-grow-1">NIGHT DIFFERENTIAL</div>
+                          <div className="text-end" style={{ width: '80px' }}>{selectedPayslip.total_nd_hours ? Number(selectedPayslip.total_nd_hours).toFixed(2) : '---'}</div>
+                          <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.total_nd_pay).replace('PHP ', '')}</div>
+                        </div>
+                      )}
+                      {selectedPayslip.retro_pay !== 0 && (
+                        <div className="d-flex mb-1">
+                          <div className="flex-grow-1">RETROACTIVE ADJUSTMENT</div>
+                          <div className="text-end" style={{ width: '80px' }}>---</div>
+                          <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.retro_pay).replace('PHP ', '')}</div>
+                        </div>
+                      )}
+                      {selectedPayslip.holiday_pay > 0 && (
+                        <div className="d-flex mb-1">
+                          <div className="flex-grow-1">REGULAR HOLIDAY PREMIUM (100%)</div>
+                          <div className="text-end" style={{ width: '80px' }}>---</div>
+                          <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.holiday_pay).replace('PHP ', '')}</div>
+                        </div>
+                      )}
+                      {selectedPayslip.special_day_pay > 0 && (
+                        <div className="d-flex mb-1">
+                          <div className="flex-grow-1">SPECIAL DAY PREMIUM (30%)</div>
+                          <div className="text-end" style={{ width: '80px' }}>---</div>
+                          <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.special_day_pay).replace('PHP ', '')}</div>
+                        </div>
+                      )}
+                      {selectedPayslip.excess_days_pay > 0 && (
+                        <div className="d-flex mb-1">
+                          <div className="flex-grow-1">EXCESS / REST DAY PAY</div>
+                          <div className="text-end" style={{ width: '80px' }}>---</div>
+                          <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.excess_days_pay).replace('PHP ', '')}</div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="d-flex border-top border-bottom border-dark p-1 fw-bold small">
+                      <div className="flex-grow-1">TOTAL TAXABLE EARNINGS (A)</div>
+                      <div className="text-end" style={{ width: '100px' }}>
+                        {(
+                          (selectedPayslip.basic_salary || 0) + 
+                          (selectedPayslip.total_overtime || 0) + 
+                          (selectedPayslip.total_nd_pay || 0) + 
+                          (selectedPayslip.holiday_pay || 0) + 
+                          (selectedPayslip.special_day_pay || 0) + 
+                          (selectedPayslip.excess_days_pay || 0)
+                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    {/* NON-TAXABLE EARNINGS */}
+                    <div className="bg-dark text-white p-1 fw-bold" style={{ fontSize: '10px' }}>NON-TAXABLE EARNINGS</div>
+                    <div className="p-2" style={{ minHeight: '100px', fontSize: '12px' }}>
+                      {selectedPayslip.housing_allowance > 0 && (
+                        <div className="d-flex mb-1"><div className="flex-grow-1">HOUSING ALLOWANCE</div><div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.housing_allowance).replace('PHP ', '')}</div></div>
+                      )}
+                      {selectedPayslip.transport_allowance > 0 && (
+                        <div className="d-flex mb-1"><div className="flex-grow-1">TRANSPORT ALLOWANCE</div><div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.transport_allowance).replace('PHP ', '')}</div></div>
+                      )}
+                      {selectedPayslip.meal_allowance > 0 && (
+                        <div className="d-flex mb-1"><div className="flex-grow-1">MEAL ALLOWANCE</div><div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.meal_allowance).replace('PHP ', '')}</div></div>
+                      )}
+                      {selectedPayslip.other_allowances > 0 && (
+                        <div className="d-flex mb-1"><div className="flex-grow-1">OTHER ALLOWANCES</div><div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.other_allowances).replace('PHP ', '')}</div></div>
+                      )}
+                    </div>
+                    <div className="d-flex border-top border-bottom border-dark p-1 fw-bold small">
+                      <div className="flex-grow-1">TOTAL NON-TAXABLE EARNINGS (B)</div>
+                      <div className="text-end" style={{ width: '100px' }}>
+                        {(
+                          (selectedPayslip.housing_allowance || 0) + 
+                          (selectedPayslip.transport_allowance || 0) + 
+                          (selectedPayslip.meal_allowance || 0) + 
+                          (selectedPayslip.other_allowances || 0)
+                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <div className="d-flex p-1 fw-bold small mt-auto border-top border-dark bg-light">
+                      <div className="flex-grow-1">GROSS EARNINGS (G) (A+B)</div>
+                      <div className="text-end" style={{ width: '100px' }}>
+                        {selectedPayslip.gross_pay.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </Col>
+
+                  {/* DEDUCTIONS COLUMN */}
+                  <Col md={6}>
+                    <div className="bg-dark text-white p-1 text-center fw-bold small">DEDUCTIONS</div>
+                    <div className="d-flex border-bottom border-dark bg-light fw-bold small p-1">
+                      <div className="flex-grow-1">Description</div>
+                      <div className="text-end" style={{ width: '100px' }}>Total</div>
+                    </div>
+
+                    {/* MANDATORY GOVT CONTRIBUTIONS */}
+                    <div className="bg-dark text-white p-1 fw-bold" style={{ fontSize: '10px' }}>MANDATORY GOVT CONTRIBUTIONS</div>
+                    <div className="p-2" style={{ minHeight: '120px', fontSize: '12px' }}>
+                      <div className="d-flex mb-1">
+                        <div className="flex-grow-1">SSS CONTRIBUTION EMPLOYEE SHARE</div>
+                        <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.sss_deduction).replace('PHP ', '')}</div>
+                      </div>
+                      <div className="d-flex mb-1">
+                        <div className="flex-grow-1">PHIC CONTRIBUTION EMPLOYEE SHARE</div>
+                        <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.philhealth_deduction).replace('PHP ', '')}</div>
+                      </div>
+                      <div className="d-flex mb-1">
+                        <div className="flex-grow-1">HDMF CONTRIBUTION EMPLOYEE SHARE</div>
+                        <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.pagibig_deduction).replace('PHP ', '')}</div>
+                      </div>
+                    </div>
+                    <div className="d-flex border-top border-bottom border-dark p-1 fw-bold small">
+                      <div className="flex-grow-1">TOTAL MANDATORY GOVT CONT (D)</div>
+                      <div className="text-end" style={{ width: '100px' }}>
+                        {(
+                          (selectedPayslip.sss_deduction || 0) + 
+                          (selectedPayslip.philhealth_deduction || 0) + 
+                          (selectedPayslip.pagibig_deduction || 0)
+                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    {/* OTHER DEDUCTIONS */}
+                    <div className="bg-dark text-white p-1 fw-bold" style={{ fontSize: '10px' }}>OTHER DEDUCTIONS</div>
+                    <div className="p-2" style={{ minHeight: '80px', fontSize: '12px' }}>
+                      {selectedPayslip.absence_deduction > 0 && (
+                        <div className="d-flex mb-1"><div className="flex-grow-1">ABSENCE DEDUCTION</div><div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.absence_deduction).replace('PHP ', '')}</div></div>
+                      )}
+                      {selectedPayslip.total_loans > 0 && (
+                        <div className="d-flex mb-1"><div className="flex-grow-1">TOTAL LOANS REPAYMENT</div><div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.total_loans).replace('PHP ', '')}</div></div>
+                      )}
+                      {selectedPayslip.total_penalties > 0 && (
+                        <div className="d-flex mb-1"><div className="flex-grow-1">LATE / UNDERTIME PENALTIES</div><div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.total_penalties).replace('PHP ', '')}</div></div>
+                      )}
+                    </div>
+                    <div className="d-flex border-top border-bottom border-dark p-1 fw-bold small">
+                      <div className="flex-grow-1">TOTAL OTHER DEDUCTIONS (E)</div>
+                      <div className="text-end" style={{ width: '100px' }}>
+                        {(
+                          (selectedPayslip.absence_deduction || 0) + 
+                          (selectedPayslip.total_loans || 0) + 
+                          (selectedPayslip.total_penalties || 0)
+                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    {/* TAXES */}
+                    <div className="bg-dark text-white p-1 fw-bold" style={{ fontSize: '10px' }}>TAXES</div>
+                    <div className="p-2" style={{ minHeight: '40px', fontSize: '12px' }}>
+                      <div className="d-flex mb-1">
+                        <div className="flex-grow-1">WITHHOLDING TAX</div>
+                        <div className="text-end" style={{ width: '100px' }}>{formatMoney(selectedPayslip.withholding_tax).replace('PHP ', '')}</div>
+                      </div>
+                    </div>
+                    <div className="d-flex border-top border-bottom border-dark p-1 fw-bold small">
+                      <div className="flex-grow-1">TOTAL TAXES (F)</div>
+                      <div className="text-end" style={{ width: '100px' }}>
+                        {selectedPayslip.withholding_tax.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+
+                    <div className="d-flex p-1 fw-bold small border-top border-dark bg-light">
+                      <div className="flex-grow-1">TOTAL DEDUCTIONS (H) (D+E+F)</div>
+                      <div className="text-end" style={{ width: '100px' }}>
+                        {(
+                          (selectedPayslip.total_deductions || 0) + 
+                          (selectedPayslip.total_penalties || 0)
+                        ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </Col>
+                </Row>
+
+                {/* NET TAKE HOME PAY BANNER */}
+                <div className="d-flex align-items-center justify-content-between p-2 border-top border-dark" style={{ backgroundColor: '#00F5D4', color: '#000', breakAfter: 'page' }}>
+                  <div className="fw-bold" style={{ letterSpacing: '2px' }}>NET EARNINGS (G-H)</div>
+                  <h3 className="mb-0 fw-bold">{formatMoney(selectedPayslip.net_pay)}</h3>
+                </div>
+              </div>
+
+              {/* CSS for print-only optimization */}
+              <style>
+                {`
+                  @media print {
+                    @page {
+                      size: A4;
+                      margin: 10mm;
+                    }
+                    body {
+                      visibility: hidden;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                    }
+                    #printable-payslip, #printable-payslip * {
+                      visibility: visible;
+                    }
+                    #printable-payslip {
+                      position: absolute;
+                      left: 0;
+                      top: 0;
+                      width: 100%;
+                      padding: 0 !important;
+                      margin: 0 !important;
+                      background-color: white !important;
+                      -webkit-print-color-adjust: exact !important;
+                      print-color-adjust: exact !important;
+                    }
+                    /* Ensure no extra pages from modal backdrop or headers */
+                    .modal-header, .modal-footer, .navbar, .sidebar, .btn, .d-print-none, .modal-backdrop {
+                      display: none !important;
+                    }
+                    .page-break {
+                      break-after: page;
+                      page-break-after: always;
+                    }
+                  }
+                `}
+              </style>
+
+              {/* --- RECURRING DEDUCTION DETAILS --- */}
+              <div className="mb-4">
+                <Row className="g-0 border border-dark">
+                  <Col md={6} className="border-end border-dark">
+                    <div className="bg-dark text-white p-1 text-center fw-bold" style={{ fontSize: '10px' }}>RECURRING DEDUCTION DETAILS (GOVERNMENT LOANS)</div>
+                    <Table bordered size="sm" className="mb-0 border-0" style={{ fontSize: '9px' }}>
+                      <thead className="bg-light">
+                        <tr>
+                          <th>Govt Loan</th>
+                          <th>Loan Date</th>
+                          <th>Loan Amount</th>
+                          <th>Amount Paid</th>
+                          <th>Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>SSS Loan</td>
+                          <td>---</td>
+                          <td>---</td>
+                          <td className="fw-bold">₱{Number(selectedPayslip.sss_loan || 0).toLocaleString()}</td>
+                          <td>---</td>
+                        </tr>
+                        <tr>
+                          <td>Pag-IBIG Loan</td>
+                          <td>---</td>
+                          <td>---</td>
+                          <td className="fw-bold">₱{Number(selectedPayslip.pagibig_loan || 0).toLocaleString()}</td>
+                          <td>---</td>
+                        </tr>
+                      </tbody>
+                    </Table>
+                  </Col>
+                  <Col md={6}>
+                    <div className="bg-dark text-white p-1 text-center fw-bold" style={{ fontSize: '10px' }}>RECURRING DEDUCTION DETAILS (COMPANY PAYABLES)</div>
+                    <Table bordered size="sm" className="mb-0 border-0" style={{ fontSize: '9px' }}>
+                      <thead className="bg-light">
+                        <tr>
+                          <th>Company</th>
+                          <th>Advances/Loans</th>
+                          <th>Loan Date</th>
+                          <th>Amount Paid</th>
+                          <th>Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>SIA System</td>
+                          <td>Company Loan</td>
+                          <td>---</td>
+                          <td className="fw-bold">₱{Number(selectedPayslip.company_loan || 0).toLocaleString()}</td>
+                          <td>---</td>
+                        </tr>
+                      </tbody>
+                    </Table>
                   </Col>
                 </Row>
               </div>
 
-              <div className="mb-4">
-                <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>EARNINGS</h6>
-                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted">Basic Salary</span>
-                  <span>{formatMoney(selectedPayslip.basic_salary)}</span>
-                </div>
-                
-                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted">Overtime Pay</span>
-                  <span>{formatMoney(selectedPayslip.total_overtime)}</span>
-                </div>
+              {/* --- SUPPLEMENTARY DETAILS --- */}
+              <div className="row g-4 mt-2">
+                <Col md={6}>
+                   <h6 className="fw-bold small border-bottom border-dark pb-1 mb-2 text-uppercase">Supplementary Details (Time & Adjustments)</h6>
+                   <div style={{ fontSize: '11px' }}>
+                      {selectedPayslip.retro_items?.length > 0 && (
+                        <div className="mb-2">
+                          <strong>Retroactive Adjustments:</strong>
+                          {selectedPayslip.retro_items.map((item, idx) => (
+                            <div key={idx} className="ps-2">• ₱{Number(item.amount).toLocaleString()}: {item.reason}</div>
+                          ))}
+                        </div>
+                      )}
+                      {selectedPayslip.worked_holiday_items?.length > 0 && (
+                        <div className="mb-2">
+                          <strong>Holidays Worked:</strong>
+                          {selectedPayslip.worked_holiday_items.map((item, idx) => (
+                            <div key={idx} className="ps-2">• {item.name} ({item.type}) - {formatDateLabel(item.date)}</div>
+                          ))}
+                        </div>
+                      )}
+                      {selectedPayslip.late_penalty_items?.length > 0 && (
+                        <div>
+                          <strong>Late Incidents ({selectedPayslip.total_late_hours.toFixed(2)}h total):</strong>
+                          {selectedPayslip.late_penalty_items.map((item, idx) => (
+                            <div key={idx} className="ps-2">• {formatDateLabel(item.date)}: {item.late_time} ({Number(item.late_hours || 0).toFixed(2)}h)</div>
+                          ))}
+                        </div>
+                      )}
+                      {(!selectedPayslip.worked_holiday_items?.length && !selectedPayslip.late_penalty_items?.length) && (
+                        <div className="text-muted italic">No special time-based adjustments this period.</div>
+                      )}
+                   </div>
+                </Col>
+                <Col md={6}>
+                  <h6 className="fw-bold small border-bottom border-dark pb-1 mb-2 text-uppercase">Attendance Summary</h6>
+                  <Table bordered size="sm" className="text-center border-dark mb-4" style={{ fontSize: '11px' }}>
+                    <thead className="bg-light">
+                      <tr>
+                        <th>Days Worked</th>
+                        <th>Present</th>
+                        <th>Absent</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="fw-bold">{selectedPayslip.days_worked}</td>
+                        <td className="fw-bold text-success">{selectedPayslip.days_present}</td>
+                        <td className="fw-bold text-danger">{selectedPayslip.days_absent}</td>
+                      </tr>
+                    </tbody>
+                  </Table>
 
-                {selectedPayslip.excess_days_pay > 0 && (
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                    <span className="text-muted">Excess / Rest Day Pay</span>
-                    <span>{formatMoney(selectedPayslip.excess_days_pay)}</span>
-                  </div>
-                )}
-
-                {selectedPayslip.holiday_pay > 0 && (
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                    <span className="text-muted">Regular Holiday Premium (100%)</span>
-                    <span>{formatMoney(selectedPayslip.holiday_pay)}</span>
-                  </div>
-                )}
-
-                {selectedPayslip.special_day_pay > 0 && (
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                    <span className="text-muted">Special Day Premium (30%)</span>
-                    <span>{formatMoney(selectedPayslip.special_day_pay)}</span>
-                  </div>
-                )}
-
-                {selectedPayslip.worked_holiday_items?.length > 0 && (
-                  <div className="mt-2 pt-2 border-top-dashed">
-                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Worked Holidays</small>
-                    {selectedPayslip.worked_holiday_items.map((item, idx) => (
-                      <div key={`${item.date}-${idx}`} className="mb-1" style={{ fontSize: '12px' }}>
-                        <span className="ps-2">{formatDateLabel(item.date)} | {item.name} ({item.type})</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="mt-2 pt-2 border-top-dashed">
-                  <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Allowances</small>
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">Housing</span>
-                    <span>{formatMoney(selectedPayslip.housing_allowance)}</span>
-                  </div>
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">Transport</span>
-                    <span>{formatMoney(selectedPayslip.transport_allowance)}</span>
-                  </div>
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">Meal</span>
-                    <span>{formatMoney(selectedPayslip.meal_allowance)}</span>
-                  </div>
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">Other</span>
-                    <span>{formatMoney(selectedPayslip.other_allowances)}</span>
-                  </div>
-                </div>
-
-                <div className="d-flex justify-content-between mt-2 pt-2 border-top text-success fw-bold">
-                  <span>Gross Pay</span>
-                  <span>{formatMoney(selectedPayslip.gross_pay)}</span>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>DEDUCTIONS</h6>
-                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted">SSS Contribution</span>
-                  <span>-{formatMoney(selectedPayslip.sss_deduction)}</span>
-                </div>
-                {(selectedPayslip.sss_employee_share > 0 || selectedPayslip.sss_mpf_employee_share > 0) && (
-                  <div className="mt-2 pt-2 border-top-dashed">
-                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>SSS Breakdown</small>
-                    <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                      <span className="ps-2">Regular SSS (EE)</span>
-                      <span>-{formatMoney(selectedPayslip.sss_employee_share)}</span>
-                    </div>
-                    {selectedPayslip.sss_mpf_employee_share > 0 && (
-                      <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                        <span className="ps-2">MPF (EE)</span>
-                        <span>-{formatMoney(selectedPayslip.sss_mpf_employee_share)}</span>
-                      </div>
-                    )}
-                    {(selectedPayslip.sss_employer_share > 0 || selectedPayslip.sss_mpf_employer_share > 0 || selectedPayslip.sss_ec_employer > 0) && (
-                      <small className="text-muted d-block mt-2 ps-2" style={{ fontSize: '10px' }}>
-                        Employer-side SSS/EC is tracked separately and not deducted from employee pay.
-                      </small>
-                    )}
-                  </div>
-                )}
-                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted">PhilHealth</span>
-                  <span>-{formatMoney(selectedPayslip.philhealth_deduction)}</span>
-                </div>
-                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted">Pag-IBIG</span>
-                  <span>-{formatMoney(selectedPayslip.pagibig_deduction)}</span>
-                </div>
-                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted">Withholding Tax</span>
-                  <span>-{formatMoney(selectedPayslip.withholding_tax)}</span>
-                </div>
-                
-                <div className="d-flex justify-content-between mb-1" style={{ fontSize: '13px' }}>
-                  <span className="text-muted text-danger">Absence Deduction</span>
-                  <span className="text-danger">-{formatMoney(selectedPayslip.absence_deduction)}</span>
-                </div>
-                
-                <div className="mt-2 pt-2 border-top-dashed">
-                  <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>Loans & Penalties</small>
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">Total Loans</span>
-                    <span>-{formatMoney(selectedPayslip.total_loans)}</span>
-                  </div>
-                  <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                    <span className="ps-2">Late Penalties</span>
-                    <span>-{formatMoney(selectedPayslip.total_penalties - (selectedPayslip.undertime_deduction || 0))}</span>
-                  </div>
-                  {selectedPayslip.undertime_deduction > 0 && (
-                    <div className="d-flex justify-content-between mb-1" style={{ fontSize: '12px' }}>
-                      <span className="ps-2">Undertime Deduction</span>
-                      <span>-{formatMoney(selectedPayslip.undertime_deduction)}</span>
-                    </div>
+                  <h6 className="fw-bold small border-bottom border-dark pb-1 mb-2 text-uppercase">Year-To-Date Payroll Data</h6>
+                  {selectedPayslip.ytd_data ? (
+                    <Table bordered size="sm" className="border-dark" style={{ fontSize: '11px' }}>
+                      <tbody>
+                        <tr>
+                          <td className="bg-light fw-bold" style={{ width: '40%' }}>YTD Taxable Income</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_taxable_income || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="bg-light fw-bold" style={{ width: '40%' }}>YTD SSS Contri.</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_sss_contribution || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr>
+                          <td className="bg-light fw-bold">YTD Non-Taxable</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_non_taxable_income || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="bg-light fw-bold">YTD PHI Contri.</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_phi_contribution || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr>
+                          <td className="bg-light fw-bold">YTD Total Earnings</td>
+                          <td className="text-end fw-bold">₱{Number((selectedPayslip.ytd_data.ytd_taxable_income || 0) + (selectedPayslip.ytd_data.ytd_non_taxable_income || 0)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="bg-light fw-bold">YTD HDMF Contri.</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_hdmf_contribution || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr>
+                          <td colSpan={2}></td>
+                          <td className="bg-light fw-bold">YTD Wtax</td>
+                          <td className="text-end fw-bold">₱{Number(selectedPayslip.ytd_data.ytd_wtax || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      </tbody>
+                    </Table>
+                  ) : (
+                    <div className="text-muted small italic">YTD data not available for this legacy record.</div>
                   )}
-                </div>
-
-                {selectedPayslip.total_late_hours > 0 && (
-                  <div className="mt-2 pt-2 border-top-dashed">
-                    <small className="text-muted d-block mb-1" style={{ fontSize: '11px' }}>
-                      Late Details ({selectedPayslip.total_late_hours.toFixed(2)}h total)
-                    </small>
-                    {selectedPayslip.late_penalty_items?.map((item, idx) => (
-                      <div key={`${item.date}-${idx}`} className="mb-1" style={{ fontSize: '12px' }}>
-                        <span className="ps-2">{formatDateLabel(item.date)} | {item.late_time} ({Number(item.late_hours || 0).toFixed(2)}h)</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="d-flex justify-content-between mt-2 pt-2 border-top text-danger fw-bold">
-                  <span>Deductions Subtotal</span>
-                  <span>-{formatMoney(selectedPayslip.total_deductions)}</span>
-                </div>
-
-                <div className="d-flex justify-content-between mt-2 pt-2 border-top text-danger fw-bold">
-                  <span>Total Deductions & Penalties</span>
-                  <span>-{formatMoney((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0))}</span>
-                </div>
+                </Col>
               </div>
 
-              <div className="mb-4">
-                <h6 className="fw-bold mb-3 border-bottom pb-2" style={{ fontSize: '14px' }}>ATTENDANCE SUMMARY</h6>
-                <Row className="text-center g-2">
-                  <Col xs={4}>
-                    <div className="p-2 border rounded">
-                      <small className="d-block text-muted" style={{ fontSize: '10px' }}>Worked</small>
-                      <span className="fw-bold">{selectedPayslip.days_worked}d</span>
-                    </div>
-                  </Col>
-                  <Col xs={4}>
-                    <div className="p-2 border rounded">
-                      <small className="d-block text-muted" style={{ fontSize: '10px' }}>Present</small>
-                      <span className="fw-bold text-success">{selectedPayslip.days_present}d</span>
-                    </div>
-                  </Col>
-                  <Col xs={4}>
-                    <div className="p-2 border rounded">
-                      <small className="d-block text-muted" style={{ fontSize: '10px' }}>Absent</small>
-                      <span className="fw-bold text-danger">{selectedPayslip.days_absent}d</span>
-                    </div>
-                  </Col>
-                </Row>
-              </div>
-
-              <div className="p-3 rounded-3 mt-4 text-white d-flex justify-content-between align-items-center" style={{ backgroundColor: '#5A4343' }}>
-                <span className="fw-bold">NET TAKE HOME PAY</span>
-                <h4 className="mb-0 fw-bold">{formatMoney(selectedPayslip.net_pay)}</h4>
-              </div>
-              
-              {selectedPayslip.zero_net_reason && (
-                <Alert variant="warning" className="mt-3 mb-0">
-                  {selectedPayslip.zero_net_reason}
-                  {((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0)) > (selectedPayslip.gross_pay || 0) && (
-                    <div className="mt-2">
-                      Shortfall: {formatMoney(((selectedPayslip.total_deductions || 0) + (selectedPayslip.total_penalties || 0)) - (selectedPayslip.gross_pay || 0))}
-                    </div>
-                  )}
-                </Alert>
-              )}
-
-              <div className="mt-4 text-center">
-                <small className="text-muted" style={{ fontSize: '10px' }}>
-                  This is a computer-generated document. No signature is required.
-                  <br />Generated on {new Date(selectedPayslip.processed_at).toLocaleString()}
-                </small>
+              <div className="mt-5 text-center text-muted" style={{ fontSize: '10px' }}>
+                <p className="mb-1">This is a system-generated electronic payslip for SIA Payroll System. No signature is required.</p>
+                <p>Generated on: {new Date(selectedPayslip.processed_at).toLocaleString()}</p>
               </div>
             </div>
           )}
-          <div className="mt-5 text-center d-print-none">
-            <Button
-              variant="outline-secondary"
-              className="rounded-pill px-4 me-2"
-              onClick={async () => {
-                if (selectedPayslip) {
-                  await trackActivity(
-                    'Downloaded payslip',
-                    `${selectedPayslip.employee_number} | ${selectedPayslip.full_name}`,
-                    {
-                      payslip_id: selectedPayslip._id,
-                      pay_period_start: selectedPayslip.pay_period_start,
-                      pay_period_end: selectedPayslip.pay_period_end,
-                      format: 'print'
-                    }
-                  );
-                }
-                window.print();
-              }}
-            >
-              <Download size={18} className="me-2" /> Print PDF
-            </Button>
-          </div>
         </Modal.Body>
+        <Modal.Footer className="border-0 bg-light d-print-none">
+          <Button
+            variant="dark"
+            className="rounded-pill px-5"
+            onClick={async () => {
+              if (selectedPayslip) {
+                await trackActivity(
+                  'Downloaded payslip',
+                  `${selectedPayslip.employee_number} | ${selectedPayslip.full_name}`,
+                  {
+                    payslip_id: selectedPayslip._id,
+                    pay_period_start: selectedPayslip.pay_period_start,
+                    pay_period_end: selectedPayslip.pay_period_end,
+                    format: 'print'
+                  }
+                );
+              }
+              window.print();
+            }}
+          >
+            <Download size={18} className="me-2" /> Print Electronic Payslip
+          </Button>
+          <Button variant="outline-secondary" className="rounded-pill px-4" onClick={() => setShowPayslipModal(false)}>
+            Close
+          </Button>
+        </Modal.Footer>
       </Modal>
     </div>
   );
@@ -1092,6 +1378,132 @@ const Payroll = () => {
           </div>
         )}
       </Card>
+
+      {/* --- RETROACTIVE ADJUSTMENT MODAL --- */}
+      <Modal show={showRetroModal} onHide={() => {
+        setShowRetroModal(false);
+        setEmployeeAdjustments([]);
+        setShowHistory(false);
+      }} centered>
+        <Modal.Header closeButton className="border-0">
+          <Modal.Title className="fw-bold" style={{ color: '#5A4343' }}>
+            Retroactive Adjustment
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="px-4 pb-4">
+          <div className="mb-4">
+            <p className="text-muted small mb-3">
+              Add a one-time adjustment for <strong>{retroEmployee?.full_name}</strong>. 
+              This will be added to the next payroll run.
+            </p>
+            <Form>
+              <Row>
+                <Col md={4}>
+                  <Form.Group className="mb-3">
+                    <Form.Label className="small fw-bold">Amount (PHP)</Form.Label>
+                    <Form.Control 
+                      type="number" 
+                      placeholder="e.g. 1500" 
+                      value={retroData.amount}
+                      onChange={(e) => setRetroData({...retroData, amount: e.target.value})}
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={8}>
+                  <Form.Group className="mb-3">
+                    <Form.Label className="small fw-bold">Reason / Description</Form.Label>
+                    <Form.Control 
+                      type="text" 
+                      placeholder="e.g. Overtime backpay" 
+                      value={retroData.reason}
+                      onChange={(e) => setRetroData({...retroData, reason: e.target.value})}
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
+              <div className="text-end">
+                <Button 
+                  size="sm"
+                  className="rounded-pill px-4" 
+                  style={{ backgroundColor: '#D29191', border: 'none' }}
+                  onClick={handleAddRetro}
+                  disabled={!retroData.amount}
+                >
+                  Add Adjustment
+                </Button>
+              </div>
+            </Form>
+          </div>
+
+          <hr className="my-4" />
+
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <h6 className="fw-bold small mb-0 text-uppercase" style={{ letterSpacing: '1px' }}>Adjustment List</h6>
+            <Form.Check 
+              type="switch"
+              id="show-history-switch"
+              label={<span className="small text-muted">Show Processed History</span>}
+              checked={showHistory}
+              onChange={(e) => setShowHistory(e.target.checked)}
+            />
+          </div>
+          {adjustmentsLoading ? <div className="text-center py-3"><Spinner size="sm" /></div> : (
+            <div className="table-responsive" style={{ maxHeight: '250px' }}>
+              <Table bordered hover size="sm" style={{ fontSize: '11px' }}>
+                <thead className="bg-light">
+                  <tr>
+                    <th>Date</th>
+                    <th>Reason</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th className="text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employeeAdjustments.filter(a => showHistory || !a.is_applied).length === 0 ? (
+                    <tr><td colSpan="5" className="text-center text-muted py-3">No pending adjustments found.</td></tr>
+                  ) : employeeAdjustments.filter(a => showHistory || !a.is_applied).map((adj) => (
+                    <tr key={adj._id}>
+                      <td>{new Date(adj.created_at).toLocaleDateString()}</td>
+                      <td>{adj.reason}</td>
+                      <td className={`fw-bold ${adj.amount >= 0 ? 'text-success' : 'text-danger'}`}>
+                        ₱{Number(adj.amount).toLocaleString()}
+                      </td>
+                      <td>
+                        <Badge bg={adj.is_applied ? 'success-subtle' : 'warning-subtle'} className={adj.is_applied ? 'text-success border border-success' : 'text-warning border border-warning'}>
+                          {adj.is_applied ? 'PROCESSED' : 'PENDING'}
+                        </Badge>
+                      </td>
+                      <td className="text-center">
+                        {!adj.is_applied && (
+                          <Button 
+                            variant="link" 
+                            className="p-0 text-danger" 
+                            onClick={() => handleDeleteAdjustment(adj._id)}
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          )}
+        </Modal.Body>
+        <Modal.Footer className="border-0 bg-light">
+          <Button variant="outline-secondary" className="rounded-pill px-4" onClick={() => setShowRetroModal(false)}>Cancel</Button>
+          <Button 
+            className="rounded-pill px-4" 
+            style={{ backgroundColor: '#D29191', border: 'none' }}
+            onClick={handleAddRetro}
+            disabled={!retroData.amount}
+          >
+            Save Adjustment
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 };

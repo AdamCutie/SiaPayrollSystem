@@ -4,10 +4,9 @@ from core.auth import CurrentUser, get_current_user, require_admin, require_user
 from core.database import db
 from modules.activity_logs.service import ActivityLogService
 from integrations.hr.adapter import (
-    get_synced_active_employees,
+    get_all_active_employees,
     get_synced_employee_by_id,
     get_synced_employee_payroll_config,
-    update_payroll_config_override,
 )
 from integrations.hr.schemas import HREmployeeRead, HRPayrollConfigRead, HRPayrollConfigUpdate
 from db.models import PayrollSnapshot
@@ -25,7 +24,7 @@ async def get_employee_list(_: object = Depends(require_admin)):
     Fetches the list of all active employees for the management table.
     """
     try:
-        return await get_synced_active_employees(limit=100)
+        return await get_all_active_employees(limit=100)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch employees: {str(e)}")
 
@@ -58,44 +57,13 @@ async def get_payroll_configuration(employee_id: str, _: object = Depends(requir
             config.philHealthContribution = AgencyCalculator.calculate_philhealth(config.basicSalary)
             config.pagIbigContribution = AgencyCalculator.calculate_pagibig(config.basicSalary)
             
-            # Estimate withholding tax for the UI (Gross - Statutory)
-            statutory = config.sssContribution + config.philHealthContribution + config.pagIbigContribution
-            taxable = max(0, config.basicSalary - statutory)
-            config.withholdingTax = AgencyCalculator.calculate_withholding_tax(taxable)
+            # Use the standardized semi-monthly tax estimator from our Adapter
+            from integrations.hr.adapter import _calculate_estimated_withholding_tax
+            config.withholdingTax = _calculate_estimated_withholding_tax(config.basicSalary)
                 
         return config
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch config: {str(e)}")
-
-@router.post("/{employee_id}/payroll-config")
-async def update_payroll_configuration(
-    employee_id: str, 
-    update_data: HRPayrollConfigUpdate,
-    _: object = Depends(require_admin),
-    user: CurrentUser = Depends(get_current_user)
-):
-    """
-    Saves a payroll configuration override to OUR database.
-    Only used for 'Regular' employees as per HR policy.
-    """
-    try:
-        from integrations.hr.adapter import update_payroll_config_override
-        success = await update_payroll_config_override(employee_id, update_data)
-        if success:
-            employee = await get_synced_employee_by_id(employee_id)
-            employee_label = employee.employeeId if employee else employee_id
-            await ActivityLogService.log_local_activity(
-                module="Payroll Configuration",
-                action="Updated payroll configuration override",
-                target_info=f"Employee {employee_label}",
-                user=user,
-                metadata=update_data.model_dump(exclude_unset=True),
-            )
-            return {"status": "success", "message": "Payroll manipulation saved to local DB."}
-        else:
-            return {"status": "no_change", "message": "No changes were saved."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save manipulation: {str(e)}")
 
 @router.get("/profile/{employee_id}")
 async def get_employee_profile(employee_id: str, user: CurrentUser = Depends(get_current_user)):
