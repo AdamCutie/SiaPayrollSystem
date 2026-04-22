@@ -224,6 +224,7 @@ async def get_overtime_requests(
     employee_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     period: Optional[str] = Query(None),
+    month: Optional[int] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None)
 ):
@@ -231,6 +232,9 @@ async def get_overtime_requests(
         now_ref = datetime.now()
         if start_date and end_date:
             if end_date.hour == 0 and end_date.minute == 0: end_date = end_date.replace(hour=23, minute=59, second=59)
+        elif month:
+            start_date = datetime(now_ref.year, month, 1)
+            end_date = (datetime(now_ref.year, month + 1, 1) if month < 12 else datetime(now_ref.year + 1, 1, 1)) - timedelta(seconds=1)
         elif period == "today":
             start_date = now_ref.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = now_ref.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -238,6 +242,9 @@ async def get_overtime_requests(
             yesterday = now_ref - timedelta(days=1)
             start_date = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif period == "lastweek":
+            start_date = (now_ref - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now_ref.replace(hour=23, minute=59, second=59, microsecond=999999)
         elif period == "all":
             start_date, end_date = None, None
 
@@ -257,8 +264,16 @@ async def get_overtime_requests(
     employee_by_id = {str(emp.employeeId).strip(): emp for emp in employees}
     config_cache = {}
 
+    import re
     for req in hr_requests:
-        if status and req.get("status") != status: continue
+        req_status = req.get("status") or "Pending"
+        if status:
+            check_status = req_status
+            if status.lower() == "rejected" and req_status.lower() in ["declined", "denied"]:
+                check_status = "rejected"
+            if not re.search(f"^{status}$", check_status, re.IGNORECASE):
+                continue
+
         req["hours"] = parse_ot_hours(req.get("overtimeWorked", "0:0:0"))
         req["full_name"] = req.get("fullName")
         try:
@@ -282,6 +297,7 @@ async def get_penalty_logs(
     employee_id: Optional[str] = Query(None),
     period: Optional[str] = Query(None),
     month: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None)
 ):
@@ -299,6 +315,9 @@ async def get_penalty_logs(
             y = now_ref - timedelta(days=1)
             start_date = y.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = y.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif period == "lastweek":
+            start_date = (now_ref - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now_ref.replace(hour=23, minute=59, second=59, microsecond=999999)
         elif period == "all":
             start_date, end_date = None, None
 
@@ -317,9 +336,19 @@ async def get_penalty_logs(
         config_cache = {}
         records = []
 
+        import re
         for log in logs:
             late_info = extract_late_info(log)
             if not late_info: continue
+            
+            log_status = log.get("status") or "Detected"
+            if status:
+                check_status = log_status
+                if status.lower() == "rejected" and log_status.lower() in ["declined", "denied"]:
+                    check_status = "rejected"
+                if not re.search(f"^{status}$", check_status, re.IGNORECASE):
+                    continue
+
             emp_no = str(log.get("employeeId", "")).strip()
             hr_emp = employee_by_number.get(emp_no)
             full_name = log.get("employeeName") or f"Unknown ({emp_no})"
@@ -338,7 +367,7 @@ async def get_penalty_logs(
                 "reason": f"Automatic payroll deduction from HR lateness ({late_info['field_name']})",
                 "late_time": str(late_info["raw_value"]), "late_hours": late_info["late_hours"],
                 "rate_per_hour": round(late_rate, 2), "amount": round(late_info["late_hours"] * late_rate, 2),
-                "status": "Detected", "source": "HR Attendance / Auto Deducted in Payroll",
+                "status": log_status, "source": "HR Attendance / Auto Deducted in Payroll",
             })
         return records
     except Exception as e:
@@ -348,6 +377,7 @@ async def get_penalty_logs(
 async def get_undertime_records(
     employee_id: Optional[str] = Query(None),
     period: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None)
 ):
@@ -362,6 +392,9 @@ async def get_undertime_records(
             y = now_ref - timedelta(days=1)
             start_date = y.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = y.replace(hour=23, minute=59, second=59, microsecond=999999)
+        elif period == "lastweek":
+            start_date = (now_ref - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now_ref.replace(hour=23, minute=59, second=59, microsecond=999999)
         elif period == "all":
             start_date, end_date = None, None
 
@@ -385,7 +418,16 @@ async def get_undertime_records(
     employee_by_id = {str(emp.employeeId).strip(): emp for emp in employees}
     config_cache = {}
 
+    import re
     for rec in hr_records:
+        rec_status = rec.get("status") or "Pending"
+        if status:
+            check_status = rec_status
+            if status.lower() == "rejected" and rec_status.lower() in ["declined", "denied"]:
+                check_status = "rejected"
+            if not re.search(f"^{status}$", check_status, re.IGNORECASE):
+                continue
+
         # Use 'hoursUndertime' from HR payload
         rec["hours"] = round(float(rec.get("hoursUndertime", 0)), 2)
         rec["full_name"] = rec.get("fullName")

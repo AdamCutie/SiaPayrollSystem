@@ -533,7 +533,7 @@ class PayrollProcessingService:
         return {"ready_count": ready_count, "incomplete_count": incomplete_count, "employees": results}
 
     @classmethod
-    async def get_payroll_history(cls, department: Optional[str] = None, period: Optional[str] = None, month: Optional[int] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[PayrollSnapshot]:
+    async def get_payroll_history(cls, department: Optional[str] = None, period: Optional[str] = None, month: Optional[int] = None, status: Optional[str] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[PayrollSnapshot]:
         collection = db["PayrollSnapshots"]
         query = {}
         now = datetime.now(timezone.utc)
@@ -562,6 +562,17 @@ class PayrollProcessingService:
 
         if department:
             query["department"] = department
+
+        if status:
+            if status.lower() == "approved":
+                query["status"] = {"$regex": "^(Approved|Completed)$", "$options": "i"}
+            elif status.lower() == "rejected":
+                query["status"] = {"$regex": "^(Rejected|Declined)$", "$options": "i"}
+            elif status.lower() == "pending":
+                query["status"] = {"$regex": "^(Pending|Delayed)$", "$options": "i"}
+            else:
+                query["status"] = {"$regex": f"^{status}$", "$options": "i"}
+
         cursor = collection.find(query).sort("processed_at", -1)
         return [PayrollSnapshot(**doc) async for doc in cursor]
 

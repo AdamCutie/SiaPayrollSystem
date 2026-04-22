@@ -225,14 +225,16 @@ async def get_payroll_history(
     department: Optional[str] = Query(None),
     period: Optional[str] = Query(None),
     month: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None)
 ):
-    """Fetches history with optional department, period, and month filters."""
+    """Fetches history with optional department, period, month, and status filters."""
     return await PayrollProcessingService.get_payroll_history(
         department=department,
         period=period,
         month=month,
+        status=status,
         start_date=start_date,
         end_date=end_date
     )

@@ -25,6 +25,7 @@ async def get_leave_logs(
     employee_id: Optional[str] = Query(None),
     period: Optional[str] = Query(None),
     month: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     _: object = Depends(require_admin),
@@ -64,7 +65,22 @@ async def get_leave_logs(
             employee = await get_synced_employee_by_id(employee_id)
             employee_number = employee.employeeId if employee else employee_id
 
-        return await get_synced_leave_list(employee_number, start_date, end_date)
+        leaves = await get_synced_leave_list(employee_number, start_date, end_date)
+        
+        if status:
+            import re
+            filtered = []
+            for leave in leaves:
+                leave_status = leave.get("status") or "Pending"
+                check_status = leave_status
+                if status.lower() == "rejected" and leave_status.lower() in ["declined", "denied"]:
+                    check_status = "rejected"
+                
+                if re.search(f"^{status}$", check_status, re.IGNORECASE):
+                    filtered.append(leave)
+            return filtered
+            
+        return leaves
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching synced leave logs: {str(e)}")
 

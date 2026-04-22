@@ -735,56 +735,53 @@ const Payroll = () => {
 
   const renderPayslipsContent = () => (
     <div>
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h5 className="fw-bold mb-0" style={{ color: '#5A4343' }}>Payroll History & Payslips</h5>
-        <div className="position-relative w-25">
-          <Search className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" size={18} />
-          <Form.Control 
-            type="text" 
-            placeholder="Search history..." 
-            className="rounded-pill ps-5 border-0 shadow-sm" 
-            style={{ height: '40px' }}
-            value={payslipSearch}
-            onChange={(e) => setPayslipSearch(e.target.value)}
-          />
-        </div>
-      </div>
+      <div className="mb-4">
+        <h5 className="fw-bold mb-3" style={{ color: '#5A4343' }}>Payroll History & Payslips</h5>
+        
+        <div className="d-flex justify-content-between align-items-center">
+          {/* Search Bar on the Left */}
+          <div className="position-relative" style={{ width: '400px' }}>
+            <Search className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" size={18} />
+            <Form.Control 
+              type="text" 
+              placeholder="Search by employee name or ID..." 
+              className="rounded-pill ps-5 border-0 shadow-sm" 
+              style={{ height: '40px', fontSize: '13px', fontWeight: '600' }}
+              value={payslipSearch}
+              onChange={(e) => setPayslipSearch(e.target.value)}
+            />
+          </div>
 
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <div className="d-flex gap-2">
-          {[
-            { label: 'Today', value: 'today' },
-            { label: 'Yesterday', value: 'yesterday' },
-            { label: 'Last 7 Days', value: 'lastweek' },
-            { label: 'All Time', value: 'all' }
-          ].map((btn) => (
-            <Button
-              key={btn.value}
-              onClick={() => { setHistoryPeriod(btn.value); setSelectedPayslipMonth(''); }}
-              className="rounded-pill px-4 shadow-sm border-0"
-              style={{ 
-                backgroundColor: !selectedPayslipMonth && historyPeriod === btn.value ? '#D29191' : '#FFFFFF',
-                color: !selectedPayslipMonth && historyPeriod === btn.value ? 'white' : '#A08E8E',
-                fontWeight: '600', fontSize: '13px'
-              }}
-            >
-              {btn.label}
-            </Button>
-          ))}
-        </div>
+          {/* Dropdown Filters on the Right */}
+          <div className="d-flex gap-2">
+            <div style={{ width: '160px' }}>
+              <Form.Select 
+                value={historyPeriod} 
+                onChange={(e) => { setHistoryPeriod(e.target.value); setSelectedPayslipMonth(''); }}
+                className="rounded-pill border-0 shadow-sm px-3"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              >
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="lastweek">Last 7 Days</option>
+                <option value="all">All Time</option>
+              </Form.Select>
+            </div>
 
-        <div style={{ width: '200px' }}>
-          <Form.Select 
-            value={selectedPayslipMonth} 
-            onChange={(e) => { setSelectedPayslipMonth(e.target.value); setHistoryPeriod(''); }}
-            className="rounded-pill border-0 shadow-sm px-4"
-            style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
-          >
-            <option value="">Specific Month</option>
-            {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
-              <option key={m} value={idx + 1}>{m}</option>
-            ))}
-          </Form.Select>
+            <div style={{ width: '180px' }}>
+              <Form.Select 
+                value={selectedPayslipMonth} 
+                onChange={(e) => { setSelectedPayslipMonth(e.target.value); setHistoryPeriod(''); }}
+                className="rounded-pill border-0 shadow-sm px-4"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              >
+                <option value="">Specific Month</option>
+                {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
+                  <option key={m} value={idx + 1}>{m}</option>
+                ))}
+              </Form.Select>
+            </div>
+          </div>
         </div>
       </div>
 
