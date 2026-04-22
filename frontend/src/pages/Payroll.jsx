@@ -35,6 +35,7 @@ const Payroll = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [payslipSearch, setPayslipSearch] = useState('');
   const [historyPeriod, setHistoryPeriod] = useState('today'); // 'all', 'today', 'yesterday'
+  const [selectedPayslipMonth, setSelectedPayslipMonth] = useState('');
   const [selectedPayslip, setSelectedPayslip] = useState(null);
   const [showPayslipModal, setShowPayslipModal] = useState(false);
 
@@ -68,7 +69,7 @@ const Payroll = () => {
     } else if (view === 'schedule') {
       fetchSchedule();
     }
-  }, [view, historyPeriod]);
+  }, [view, historyPeriod, selectedPayslipMonth]);
 
   const fetchEmployees = async () => {
     try {
@@ -90,9 +91,17 @@ const Payroll = () => {
     try {
       setHistoryLoading(true);
       let url = 'http://localhost:8000/payroll/processing/history';
-      if (historyPeriod !== 'all') {
-        url += `?period=${historyPeriod}`;
+      const params = [];
+      if (selectedPayslipMonth) {
+        params.push(`month=${selectedPayslipMonth}`);
+      } else if (historyPeriod && historyPeriod !== 'all') {
+        params.push(`period=${historyPeriod}`);
       }
+      
+      if (params.length > 0) {
+        url += `?${params.join('&')}`;
+      }
+      
       const response = await axios.get(url);
       setPayrollHistory(response.data);
       setHistoryLoading(false);
@@ -741,34 +750,42 @@ const Payroll = () => {
         </div>
       </div>
 
-      <div className="bg-light p-1 rounded-pill d-inline-flex gap-1 mb-4 shadow-sm border">
-        <Button
-          variant={historyPeriod === 'today' ? 'secondary' : 'light'}
-          size="sm"
-          className="rounded-pill px-3 border-0"
-          onClick={() => setHistoryPeriod('today')}
-          style={{ fontSize: '12px', fontWeight: historyPeriod === 'today' ? '700' : 'normal' }}
-        >
-          Today
-        </Button>
-        <Button
-          variant={historyPeriod === 'yesterday' ? 'secondary' : 'light'}
-          size="sm"
-          className="rounded-pill px-3 border-0"
-          onClick={() => setHistoryPeriod('yesterday')}
-          style={{ fontSize: '12px', fontWeight: historyPeriod === 'yesterday' ? '700' : 'normal' }}
-        >
-          Yesterday
-        </Button>
-        <Button
-          variant={historyPeriod === 'all' ? 'secondary' : 'light'}
-          size="sm"
-          className="rounded-pill px-3 border-0"
-          onClick={() => setHistoryPeriod('all')}
-          style={{ fontSize: '12px', fontWeight: historyPeriod === 'all' ? '700' : 'normal' }}
-        >
-          All Time
-        </Button>
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <div className="d-flex gap-2">
+          {[
+            { label: 'Today', value: 'today' },
+            { label: 'Yesterday', value: 'yesterday' },
+            { label: 'Last 7 Days', value: 'lastweek' },
+            { label: 'All Time', value: 'all' }
+          ].map((btn) => (
+            <Button
+              key={btn.value}
+              onClick={() => { setHistoryPeriod(btn.value); setSelectedPayslipMonth(''); }}
+              className="rounded-pill px-4 shadow-sm border-0"
+              style={{ 
+                backgroundColor: !selectedPayslipMonth && historyPeriod === btn.value ? '#D29191' : '#FFFFFF',
+                color: !selectedPayslipMonth && historyPeriod === btn.value ? 'white' : '#A08E8E',
+                fontWeight: '600', fontSize: '13px'
+              }}
+            >
+              {btn.label}
+            </Button>
+          ))}
+        </div>
+
+        <div style={{ width: '200px' }}>
+          <Form.Select 
+            value={selectedPayslipMonth} 
+            onChange={(e) => { setSelectedPayslipMonth(e.target.value); setHistoryPeriod(''); }}
+            className="rounded-pill border-0 shadow-sm px-4"
+            style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+          >
+            <option value="">Specific Month</option>
+            {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
+              <option key={m} value={idx + 1}>{m}</option>
+            ))}
+          </Form.Select>
+        </div>
       </div>
 
       <div className="table-responsive">

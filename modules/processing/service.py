@@ -533,7 +533,7 @@ class PayrollProcessingService:
         return {"ready_count": ready_count, "incomplete_count": incomplete_count, "employees": results}
 
     @classmethod
-    async def get_payroll_history(cls, department: Optional[str] = None, period: Optional[str] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[PayrollSnapshot]:
+    async def get_payroll_history(cls, department: Optional[str] = None, period: Optional[str] = None, month: Optional[int] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[PayrollSnapshot]:
         collection = db["PayrollSnapshots"]
         query = {}
         now = datetime.now(timezone.utc)
@@ -541,13 +541,21 @@ class PayrollProcessingService:
 
         if start_date and end_date:
             query["processed_at"] = {"$gte": start_date, "$lte": end_date}
+        elif month is not None:
+            year = now.year
+            start_of_month = datetime(year, month, 1, tzinfo=timezone.utc)
+            if month == 12:
+                end_of_month = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+            else:
+                end_of_month = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+            query["processed_at"] = {"$gte": start_of_month, "$lt": end_of_month}
         elif period == "today":
             query["processed_at"] = {"$gte": today_start}
         elif period == "yesterday":
             yesterday_start = today_start - timedelta(days=1)
             query["processed_at"] = {
                 "$gte": yesterday_start, "$lt": today_start}
-        elif period == "week":
+        elif period == "week" or period == "lastweek":
             query["processed_at"] = {"$gte": today_start - timedelta(days=7)}
         elif period == "month":
             query["processed_at"] = {"$gte": today_start - timedelta(days=30)}
