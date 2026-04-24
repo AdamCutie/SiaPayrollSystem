@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends
 from core.auth import require_admin
 from core.database import db
 from .schemas import DashboardOverview
-TOP_DEPARTMENTS_LIMIT = 5
 
 
 # Initialize the Router
@@ -24,12 +23,11 @@ async def get_dashboard_overview():
     total = await hr_coll.count_documents({"payload.isActive": True})
     regular = await hr_coll.count_documents({"payload.isActive": True, "payload.contractType": "Regular"})
 
-    # 1b. Department breakdown (top N)
+    # 1b. Department breakdown (all active departments)
     dept_pipeline = [
         {"$match": {"payload.isActive": True}},
         {"$group": {"_id": "$payload.department", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
-        {"$limit": TOP_DEPARTMENTS_LIMIT},
     ]
     dept_rows = await hr_coll.aggregate(dept_pipeline).to_list(None)
     departments = {

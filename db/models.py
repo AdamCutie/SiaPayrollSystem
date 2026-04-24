@@ -89,6 +89,10 @@ class PayrollSnapshot(BaseModel):
     processed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: str = "Pending" # Approved, Rejected, Pending, Completed, Delayed
     remarks: Optional[str] = None # Added for Finance notes
+    email_delivery_status: str = "pending"
+    email_sent_at: Optional[datetime] = None
+    email_last_attempt_at: Optional[datetime] = None
+    email_failure_reason: Optional[str] = None
 
 class Holiday(BaseModel):
     """Matches Figma: Holiday.png table"""

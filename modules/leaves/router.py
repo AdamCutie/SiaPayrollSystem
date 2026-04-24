@@ -3,14 +3,14 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from core.auth import require_admin, require_user
+from core.auth import require_admin
 from integrations.hr.adapter import get_synced_employee_by_id, get_synced_leave_list
 
 
 router = APIRouter(
     prefix="/leaves",
     tags=["Leave Management"],
-    dependencies=[Depends(require_user)],
+    dependencies=[Depends(require_admin)],
 )
 
 

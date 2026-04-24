@@ -14,7 +14,8 @@ class AuthUserService:
     @classmethod
     async def get_by_email(cls, email: str) -> Optional[AuthUser]:
         collection = db[AUTH_USERS_COLLECTION]
-        doc = await collection.find_one({"email": email})
+        email = email.strip().lower()
+        doc = await collection.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}})
         return AuthUser(**doc) if doc else None
 
     @classmethod

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Card, Badge, Spinner, Alert, Form, Row, Col, Button } from 'react-bootstrap';
-import axios from 'axios';
+import api from '../../api/auth';
 import { Calendar, ChevronLeft, ChevronRight, User } from 'lucide-react';
 
 const MonthlyAttendanceSheet = () => {
@@ -16,7 +16,7 @@ const MonthlyAttendanceSheet = () => {
   useEffect(() => {
     const fetchEmps = async () => {
       try {
-        const res = await axios.get('http://localhost:8000/payroll/employees/list');
+        const res = await api.get('/employees/list');
         setEmployees(res.data);
         if (res.data.length > 0) setSelectedEmp(res.data[0].id);
       } catch (err) {
@@ -34,7 +34,7 @@ const MonthlyAttendanceSheet = () => {
       try {
         setLoading(true);
         setError(null);
-        const res = await axios.get(`http://localhost:8000/payroll/attendance/sheet/${selectedEmp}?month=${month}&year=${year}`);
+        const res = await api.get(`/attendance/sheet/${selectedEmp}?month=${month}&year=${year}`);
         setSheet(res.data);
         setLoading(false);
       } catch (err) {

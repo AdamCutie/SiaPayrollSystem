@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Row, Col, Card, Table, Badge, Button, Spinner, Alert, Form } from 'react-bootstrap';
-import axios from 'axios';
+import api from '../api/auth';
 import { Clock, FileText, AlertCircle } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
@@ -15,11 +15,12 @@ const Approvals = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const latestRequestRef = useRef(0);
 
   useEffect(() => {
     const fetchDepts = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/payroll/departments/summary');
+        const response = await api.get('/departments/summary');
         setDepartments(response.data);
       } catch (err) {
         console.error("Failed to fetch departments", err);
@@ -28,7 +29,8 @@ const Approvals = () => {
     fetchDepts();
   }, []);
 
-  const fetchTabRecord = async (tab, selectedPeriod, status, dept, month) => {
+  const fetchTabRecord = async (tab, selectedPeriod, status, dept, month, signal) => {
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -46,16 +48,19 @@ const Approvals = () => {
       
       const queryStr = params.toString() ? `?${params.toString()}` : '';
 
-      if (tab === 'overtime') endpoint = `http://localhost:8000/payroll/attendance/overtime${queryStr}`;
-      else if (tab === 'leaves') endpoint = `http://localhost:8000/payroll/leaves/logs${queryStr}`;
-      else if (tab === 'penalties') endpoint = `http://localhost:8000/payroll/attendance/penalties${queryStr}`;
-      else if (tab === 'undertime') endpoint = `http://localhost:8000/payroll/attendance/undertime${queryStr}`;
-      else if (tab === 'payroll') endpoint = `http://localhost:8000/payroll/processing/history${queryStr}`;
+      if (tab === 'overtime') endpoint = `/attendance/overtime${queryStr}`;
+      else if (tab === 'leaves') endpoint = `/leaves/logs${queryStr}`;
+      else if (tab === 'penalties') endpoint = `/attendance/penalties${queryStr}`;
+      else if (tab === 'undertime') endpoint = `/attendance/undertime${queryStr}`;
+      else if (tab === 'payroll') endpoint = `/processing/history${queryStr}`;
 
-      const response = await axios.get(endpoint);
+      const response = await api.get(endpoint, { signal });
+      if (requestId !== latestRequestRef.current) return;
       setData(response.data);
       setLoading(false);
     } catch (err) {
+      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
+      if (requestId !== latestRequestRef.current) return;
       console.error(err);
       setError("Failed to fetch records.");
       setLoading(false);
@@ -63,7 +68,9 @@ const Approvals = () => {
   };
 
   useEffect(() => {
-    fetchTabRecord(activeTab, period, filterStatus, selectedDepartment, selectedMonth);
+    const controller = new AbortController();
+    fetchTabRecord(activeTab, period, filterStatus, selectedDepartment, selectedMonth, controller.signal);
+    return () => controller.abort();
   }, [activeTab, period, filterStatus, selectedDepartment, selectedMonth]);
 
   // Frontend Search logic
@@ -175,7 +182,7 @@ p => (
 ot => (
           <tr key={ot.id || ot._id}>
             <td>{ot.date ? new Date(ot.date).toLocaleDateString() : 'N/A'}</td>
-            <td className="fw-bold">{ot.fullName || 'Employee'}</td>
+            <td className="fw-bold">{ot.full_name || ot.fullName || ot.employeeName || 'Employee'}</td>
             <td className="fw-bold text-primary">{formatDuration(ot.hours)}</td>
             <td className="small text-muted">{ot.reason || '-'}</td>
             <td className="text-success fw-bold">+PHP {(ot.total_pay || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>

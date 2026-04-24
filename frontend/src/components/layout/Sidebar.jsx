@@ -1,12 +1,20 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, Users, CreditCard, Calendar, Settings, CheckCircle, ClipboardList } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import siaEssentialsLogo from '../../assets/sheessentials-logo.jpg';
 
 const Sidebar = () => {
   return (
     <div className="sidebar-sia">
       <div className="logo-container p-4 text-center">
-        <h4 className="fw-bold m-0" style={{ color: '#D29191' }}>Sia Essentials</h4>
+        <div className="sidebar-brand-frame">
+          <img
+            src={siaEssentialsLogo}
+            alt="Sia Essentials"
+            className="sidebar-brand-logo"
+          />
+        </div>
       </div>
 
       <div className="nav flex-column gap-1">

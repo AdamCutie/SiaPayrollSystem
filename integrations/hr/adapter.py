@@ -293,6 +293,32 @@ async def get_all_active_employees(limit: int | None = None) -> List[HREmployeeR
     return employees
 
 
+async def get_all_synced_employees(
+    *,
+    active_only: bool = False,
+    limit: int | None = None,
+) -> List[HREmployeeRead]:
+    """
+    Fetches employees from the synced local database.
+    Used by read paths that should remain stable even while HR sync is in flight.
+    """
+    collection = db[SYNCED_HR_EMPLOYEES_COLLECTION]
+    query = {"payload.isActive": True} if active_only else {}
+    cursor = collection.find(query)
+    if limit is not None:
+        cursor = cursor.limit(limit)
+
+    employees: List[HREmployeeRead] = []
+    async for doc in cursor:
+        try:
+            employees.append(HREmployeeRead(**doc.get("payload", {})))
+        except ValidationError as e:
+            doc_id = doc.get("_id", "<unknown>")
+            print(f"WARNING: Skipping invalid synced HR employee doc _id={doc_id}: {e}")
+
+    return employees
+
+
 async def get_synced_employee_by_id(employee_id_str: str) -> Optional[HREmployeeRead]:
     collection = db[SYNCED_HR_EMPLOYEES_COLLECTION]
 
@@ -300,6 +326,12 @@ async def get_synced_employee_by_id(employee_id_str: str) -> Optional[HREmployee
     if employee_id_str:
         or_terms.append({"payload.employeeId": employee_id_str})
         or_terms.append({"payload._id": employee_id_str})
+        # Support searching by the actual MongoDB ObjectId
+        if len(employee_id_str) == 24:
+            try:
+                or_terms.append({"_id": ObjectId(employee_id_str)})
+            except:
+                pass
 
     if not or_terms:
         return None
@@ -367,6 +399,11 @@ async def get_employee_by_id(employee_id_str: str) -> Optional[HREmployeeRead]:
     if employee_id_str:
         or_terms.append({"payload.employeeId": employee_id_str})
         or_terms.append({"payload._id": employee_id_str})
+        if len(employee_id_str) == 24:
+            try:
+                or_terms.append({"_id": ObjectId(employee_id_str)})
+            except:
+                pass
 
     if not or_terms:
         return None
@@ -584,7 +621,10 @@ async def get_synced_attendance_list(
             "$lte": end_date.isoformat() if isinstance(end_date, datetime) else end_date
         }
 
-    cursor = collection.find(query)
+    cursor = collection.find(query).sort([
+        ("payload.date", -1),
+        ("source_id", -1),
+    ])
     docs = await cursor.to_list(length=None)
 
     employee_numbers = {
@@ -659,7 +699,11 @@ async def get_synced_leave_list(
             {"payload.endDate": {"$gte": s_str, "$lte": e_str}}
         ]
 
-    docs = await collection.find(query).to_list(length=None)
+    docs = await collection.find(query).sort([
+        ("payload.startDate", -1),
+        ("payload.endDate", -1),
+        ("source_id", -1),
+    ]).to_list(length=None)
     employee_numbers = {
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
         for doc in docs
@@ -741,7 +785,10 @@ async def get_synced_overtime_requests(
             "$lte": end_date.isoformat() if isinstance(end_date, datetime) else end_date
         }
 
-    docs = await collection.find(query).to_list(length=None)
+    docs = await collection.find(query).sort([
+        ("payload.date", -1),
+        ("source_id", -1),
+    ]).to_list(length=None)
     employee_numbers = {
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
         for doc in docs
@@ -817,7 +864,10 @@ async def get_synced_undertime_records(
             "$lte": end_date.isoformat() if isinstance(end_date, datetime) else end_date
         }
 
-    docs = await collection.find(query).to_list(length=None)
+    docs = await collection.find(query).sort([
+        ("payload.date", -1),
+        ("source_id", -1),
+    ]).to_list(length=None)
     employee_numbers = {
         str(doc.get("employee_number") or doc.get("payload", {}).get("employeeId") or "").strip()
         for doc in docs

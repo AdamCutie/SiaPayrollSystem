@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col } from 'react-bootstrap';
-import axios from 'axios';
+import api from '../api/auth';
 import TopBar from '../components/layout/TopBar';
 import StatCard from '../components/dashboard/StatCard';
 import AttendanceTable from '../components/dashboard/AttendanceTable';
@@ -15,7 +15,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/payroll/overview/');
+        const response = await api.get('/overview/');
         setStats(response.data);
         setLoading(false);
       } catch (error) {

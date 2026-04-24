@@ -4,6 +4,7 @@ from core.database import db
 from db.models import Holiday
 from integrations.hr.adapter import (
     get_all_active_employees,
+    get_all_synced_employees,
     get_synced_employee_by_id,
     get_synced_employee_payroll_config,
     get_synced_attendance_list,
@@ -260,7 +261,7 @@ async def get_overtime_requests(
     enriched = []
     
     # 🚀 OPTIMIZATION: Fetch employees and cache them OUTSIDE the loop
-    employees = await get_all_active_employees()
+    employees = await get_all_synced_employees()
     employee_by_id = {str(emp.employeeId).strip(): emp for emp in employees}
     config_cache = {}
 
@@ -275,18 +276,33 @@ async def get_overtime_requests(
                 continue
 
         req["hours"] = parse_ot_hours(req.get("overtimeWorked", "0:0:0"))
-        req["full_name"] = req.get("fullName")
+        req["full_name"] = req.get("fullName") or req.get("employeeName")
         try:
-            emp_no = str(req.get("employeeId", "")).strip()
-            emp = employee_by_id.get(emp_no)
-            if emp:
-                if emp.id not in config_cache:
-                    config_cache[emp.id] = await get_synced_employee_payroll_config(emp.id, emp.employeeId, f"{emp.lastName}, {emp.firstName}")
-                config = config_cache[emp.id]
-                if config:
-                    hourly_rate = (float(config.basicSalary) / 26.0) / 8.0
-                    req["rate_per_hour"] = round(hourly_rate * 1.25, 2)
-                    req["total_pay"] = round(req["hours"] * req["rate_per_hour"], 2)
+            calculated_pay = float(req.get("calculatedOvertimePay", 0) or 0)
+            payload_rate = float(
+                req.get("overtimeHourlyRate")
+                or req.get("hourlyRate")
+                or 0
+            )
+
+            if calculated_pay > 0:
+                req["total_pay"] = round(calculated_pay, 2)
+                if payload_rate > 0:
+                    req["rate_per_hour"] = round(payload_rate, 2)
+            elif payload_rate > 0 and req["hours"] > 0:
+                req["rate_per_hour"] = round(payload_rate, 2)
+                req["total_pay"] = round(req["hours"] * payload_rate, 2)
+            else:
+                emp_no = str(req.get("employeeId", "")).strip()
+                emp = employee_by_id.get(emp_no)
+                if emp:
+                    if emp.id not in config_cache:
+                        config_cache[emp.id] = await get_synced_employee_payroll_config(emp.id, emp.employeeId, f"{emp.lastName}, {emp.firstName}")
+                    config = config_cache[emp.id]
+                    if config:
+                        hourly_rate = (float(config.basicSalary) / 26.0) / 8.0
+                        req["rate_per_hour"] = round(hourly_rate * 1.25, 2)
+                        req["total_pay"] = round(req["hours"] * req["rate_per_hour"], 2)
         except Exception as e: 
             print(f"Error calculating overtime for {req.get('employeeId')}: {e}")
         enriched.append(req)
@@ -331,7 +347,7 @@ async def get_penalty_logs(
             start_date = end_date - timedelta(days=30)
 
         logs = await get_synced_attendance_list(emp_number, start_date, end_date)
-        employees = await get_all_active_employees()
+        employees = await get_all_synced_employees()
         employee_by_number = {str(emp.employeeId).strip(): emp for emp in employees}
         config_cache = {}
         records = []
@@ -414,7 +430,7 @@ async def get_undertime_records(
     enriched = []
 
     # 🚀 OPTIMIZATION: Fetch employees and cache them OUTSIDE the loop
-    employees = await get_all_active_employees()
+    employees = await get_all_synced_employees()
     employee_by_id = {str(emp.employeeId).strip(): emp for emp in employees}
     config_cache = {}
 

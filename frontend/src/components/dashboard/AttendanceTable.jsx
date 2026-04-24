@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Card, Spinner, Alert, Form } from 'react-bootstrap';
 import { useNavigate, useLocation } from 'react-router-dom';
-import axios from 'axios';
+import api from '../../api/auth';
 
 const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
   const navigate = useNavigate();
@@ -18,14 +18,14 @@ const AttendanceTable = ({ showFilters = false, defaultPeriod = 'today' }) => {
     const fetchLogs = async () => {
       try {
         setLoading(true);
-        let url = 'http://localhost:8000/payroll/attendance/logs';
+        let url = '/attendance/logs';
         if (selectedMonth) {
           url += `?month=${selectedMonth}`;
         } else {
           url += `?period=${period}`;
         }
         
-        const response = await axios.get(url);
+        const response = await api.get(url);
         setLogs(response.data);
         setLoading(false);
       } catch (err) {

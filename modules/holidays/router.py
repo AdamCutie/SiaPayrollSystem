@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.auth import require_user
+from core.auth import require_admin, require_user
 from core.database import db
 from db.models import Holiday
 from typing import List
@@ -21,7 +21,7 @@ class SyncResponse(BaseModel):
     message: str
 
 @router.post("/sync", response_model=SyncResponse)
-async def sync_official_holidays(year: int = 2026):
+async def sync_official_holidays(year: int = 2026, _: object = Depends(require_admin)):
     """
     Connects to the Nager.Date Global Holiday API to fetch official PH holidays.
     Automates the long-term detection of holidays for the system.

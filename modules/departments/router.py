@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.auth import require_user
+from core.auth import require_admin
 from core.database import db
 from typing import List, Dict
 
 router = APIRouter(
     prefix="/departments",
     tags=["Department Management"],
-    dependencies=[Depends(require_user)],
+    dependencies=[Depends(require_admin)],
 )
 
 @router.get("/summary")

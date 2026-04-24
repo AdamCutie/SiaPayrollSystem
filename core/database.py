@@ -54,12 +54,34 @@ async def ensure_db_indexes() -> None:
             "SyncedHRAttendance",
             "SyncedHRLeaves",
             "SyncedHROvertimeRequests",
+            "SyncedHRUndertimeRecords",
         ):
             await db[collection_name].create_index(
                 [("source_id", 1)],
                 unique=True,
                 name="uniq_source_id",
             )
+
+        await db["SyncedHREmployees"].create_index(
+            [("payload.employeeId", 1)],
+            name="idx_synced_hr_employees_employee_id",
+        )
+        await db["SyncedHRAttendance"].create_index(
+            [("employee_number", 1), ("payload.date", -1)],
+            name="idx_attendance_employee_payload_date",
+        )
+        await db["SyncedHRLeaves"].create_index(
+            [("employee_number", 1), ("payload.startDate", -1), ("payload.endDate", -1)],
+            name="idx_leaves_employee_payload_dates",
+        )
+        await db["SyncedHROvertimeRequests"].create_index(
+            [("employee_number", 1), ("payload.date", -1)],
+            name="idx_overtime_employee_payload_date",
+        )
+        await db["SyncedHRUndertimeRecords"].create_index(
+            [("employee_number", 1), ("payload.date", -1)],
+            name="idx_undertime_employee_payload_date",
+        )
 
         await db["HRSyncState"].create_index(
             [("scope", 1)],
@@ -69,6 +91,10 @@ async def ensure_db_indexes() -> None:
         await db["ActivityLogs"].create_index(
             [("timestamp", -1), ("module", 1)],
             name="idx_activity_logs_timestamp_module",
+        )
+        await db["PayrollSnapshots"].create_index(
+            [("pay_date", 1), ("status", 1), ("email_delivery_status", 1)],
+            name="idx_payroll_snapshots_pay_date_email_status",
         )
         # Logical deduplication for Attendance: One record per employee per day
         await db["SyncedHRAttendance"].create_index(

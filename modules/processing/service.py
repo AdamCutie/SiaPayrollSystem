@@ -21,6 +21,7 @@ class PayrollProcessingService:
     Orchestrates the payroll run and saves results to our new database.
     Includes duplicate prevention and detailed background logging.
     """
+    NEW_HIRE_MIN_PAYABLE_DAYS = 6
 
     @staticmethod
     def _count_weekdays(start_date: datetime, end_date: datetime) -> int:
@@ -35,6 +36,99 @@ class PayrollProcessingService:
                 days += 1
             cursor += timedelta(days=1)
         return days
+
+    @staticmethod
+    def _normalize_to_date(value) -> Optional[datetime.date]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+            except ValueError:
+                try:
+                    return datetime.fromisoformat(value.split("T")[0]).date()
+                except ValueError:
+                    return None
+        return value if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day") else None
+
+    @classmethod
+    def _get_new_hire_payable_days(
+        cls,
+        employee,
+        pay_period_start: datetime,
+        pay_period_end: datetime,
+        attendance_dates: set,
+        approved_leave_dates: set,
+    ) -> tuple[bool, int]:
+        hired_date = cls._normalize_to_date(getattr(employee, "hiredDate", None))
+        if not hired_date:
+            return False, 0
+
+        period_start_day = pay_period_start.date()
+        period_end_day = pay_period_end.date()
+
+        # Guardrail: the deferral rule is only for employees whose first hire date
+        # falls inside the current payroll period. Existing employees must always
+        # continue through the normal payroll flow even if they have low attendance.
+        if hired_date < period_start_day:
+            return False, 0
+        if hired_date < period_start_day or hired_date > period_end_day:
+            return False, 0
+
+        effective_start = max(hired_date, period_start_day)
+        payable_dates = {
+            d for d in (attendance_dates | approved_leave_dates)
+            if d >= effective_start and d <= period_end_day
+        }
+        return True, len(payable_dates)
+
+    @classmethod
+    async def _create_auto_retro_adjustment(
+        cls,
+        *,
+        employee,
+        amount: float,
+        start_date: datetime,
+        end_date: datetime,
+        payable_days: int,
+    ) -> bool:
+        if amount <= 0:
+            return False
+
+        collection = db["ManualAdjustments"]
+        reason = (
+            f"Auto deferred new-hire pay for {start_date.date()} to {end_date.date()} "
+            f"({payable_days} payable day{'s' if payable_days != 1 else ''} below "
+            f"{cls.NEW_HIRE_MIN_PAYABLE_DAYS}-day threshold)"
+        )
+        existing = await collection.find_one({
+            "employee_id": {"$in": [str(employee.id), employee.employeeId]},
+            "employee_number": employee.employeeId,
+            "reason": reason,
+            "is_applied": False,
+        })
+        if existing:
+            return False
+
+        await collection.insert_one({
+            "employee_id": str(employee.id),
+            "employee_number": employee.employeeId,
+            "amount": round(float(amount), 2),
+            "reason": reason,
+            "is_applied": False,
+            "created_at": datetime.now(timezone.utc),
+            "source": "auto_new_hire_deferral",
+            "pay_period_start": start_date,
+            "pay_period_end": end_date,
+            "metadata": {
+                "policy": "new_hire_min_payable_days",
+                "threshold_days": cls.NEW_HIRE_MIN_PAYABLE_DAYS,
+                "payable_days": payable_days,
+            },
+        })
+        return True
 
     @staticmethod
     def _validate_payroll_config(config) -> list[str]:
@@ -430,6 +524,51 @@ class PayrollProcessingService:
 
             print(
                 f"   📅 Days: {days_present}/{expected_workdays} (Logs + Leaves)")
+
+            is_new_hire_in_period, new_hire_payable_days = cls._get_new_hire_payable_days(
+                employee,
+                start_date,
+                end_date,
+                attendance_dates,
+                approved_leave_dates,
+            )
+
+            if is_new_hire_in_period and 0 < new_hire_payable_days < cls.NEW_HIRE_MIN_PAYABLE_DAYS:
+                provisional_breakdown = await CompensationService.calculate_payroll_breakdown(
+                    config,
+                    expected_workdays=expected_workdays,
+                    days_present=days_present,
+                    pay_period_start=start_date,
+                    pay_period_end=end_date,
+                    holidays=holidays,
+                    hr_late_penalties=hr_late_penalties,
+                    overtime_pay=overtime_pay,
+                    undertime_deduction=undertime_deduction,
+                    total_nd_pay=total_nd_pay,
+                    retro_pay=0.0,
+                    attendance_dates=attendance_dates,
+                    approved_leave_dates=approved_leave_dates,
+                    late_hours=total_late_hours,
+                    late_items=late_penalty_items,
+                )
+                deferred = await cls._create_auto_retro_adjustment(
+                    employee=employee,
+                    amount=provisional_breakdown.get("gross_pay", 0.0),
+                    start_date=start_date,
+                    end_date=end_date,
+                    payable_days=new_hire_payable_days,
+                )
+                if deferred:
+                    print(
+                        f"   ↩️  DEFERRED: New hire has only {new_hire_payable_days} payable days. "
+                        f"Moved PHP {provisional_breakdown.get('gross_pay', 0.0):,.2f} to retro adjustment."
+                    )
+                else:
+                    print(
+                        f"   ↩️  SKIPPED PAYSLIP: New hire has only {new_hire_payable_days} payable days and "
+                        f"an equivalent pending retro adjustment already exists."
+                    )
+                continue
 
             # 6. Final Breakdown
             breakdown = await CompensationService.calculate_payroll_breakdown(
