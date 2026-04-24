@@ -1,33 +1,66 @@
-import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Table, Badge, Button, Spinner, Alert } from 'react-bootstrap';
-import axios from 'axios';
+import React, { useEffect, useRef, useState } from 'react';
+import { Row, Col, Card, Table, Badge, Button, Spinner, Alert, Form } from 'react-bootstrap';
+import api from '../api/auth';
 import { Clock, FileText, AlertCircle } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Approvals = () => {
   const [activeTab, setActiveTab] = useState('overtime');
   const [period, setPeriod] = useState('today');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [departments, setDepartments] = useState([]);
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const latestRequestRef = useRef(0);
 
-  const fetchTabRecord = async (tab, selectedPeriod) => {
+  useEffect(() => {
+    const fetchDepts = async () => {
+      try {
+        const response = await api.get('/departments/summary');
+        setDepartments(response.data);
+      } catch (err) {
+        console.error("Failed to fetch departments", err);
+      }
+    };
+    fetchDepts();
+  }, []);
+
+  const fetchTabRecord = async (tab, selectedPeriod, status, dept, month, signal) => {
+    const requestId = ++latestRequestRef.current;
     setLoading(true);
     setError(null);
     try {
       let endpoint = '';
-      const dateParams = `?period=${selectedPeriod}`;
+      const params = new URLSearchParams();
+      
+      if (month) {
+        params.append('month', month);
+      } else if (selectedPeriod && selectedPeriod !== 'all') {
+        params.append('period', selectedPeriod);
+      }
 
-      if (tab === 'overtime') endpoint = `http://localhost:8000/payroll/attendance/overtime${dateParams}`;
-      else if (tab === 'leaves') endpoint = `http://localhost:8000/payroll/leaves/logs${dateParams}`;
-      else if (tab === 'penalties') endpoint = `http://localhost:8000/payroll/attendance/penalties${dateParams}`;
-      else if (tab === 'undertime') endpoint = `http://localhost:8000/payroll/attendance/undertime${dateParams}`;
-      else if (tab === 'payroll') endpoint = `http://localhost:8000/payroll/processing/history${dateParams}`;
+      if (status) params.append('status', status);
+      if (dept && tab === 'payroll') params.append('department', dept);
+      
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
 
-      const response = await axios.get(endpoint);
+      if (tab === 'overtime') endpoint = `/attendance/overtime${queryStr}`;
+      else if (tab === 'leaves') endpoint = `/leaves/logs${queryStr}`;
+      else if (tab === 'penalties') endpoint = `/attendance/penalties${queryStr}`;
+      else if (tab === 'undertime') endpoint = `/attendance/undertime${queryStr}`;
+      else if (tab === 'payroll') endpoint = `/processing/history${queryStr}`;
+
+      const response = await api.get(endpoint, { signal });
+      if (requestId !== latestRequestRef.current) return;
       setData(response.data);
       setLoading(false);
     } catch (err) {
+      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
+      if (requestId !== latestRequestRef.current) return;
       console.error(err);
       setError("Failed to fetch records.");
       setLoading(false);
@@ -35,8 +68,19 @@ const Approvals = () => {
   };
 
   useEffect(() => {
-    fetchTabRecord(activeTab, period);
-  }, [activeTab, period]);
+    const controller = new AbortController();
+    fetchTabRecord(activeTab, period, filterStatus, selectedDepartment, selectedMonth, controller.signal);
+    return () => controller.abort();
+  }, [activeTab, period, filterStatus, selectedDepartment, selectedMonth]);
+
+  // Frontend Search logic
+  const filteredData = data.filter(item => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    const name = (item.full_name || item.fullName || item.employeeName || '').toLowerCase();
+    const empNo = (item.employee_number || item.employeeId || '').toLowerCase();
+    return name.includes(term) || empNo.includes(term);
+  });
 
   const getStatusBadge = (status) => {
     const s = status?.toLowerCase();
@@ -67,7 +111,7 @@ const Approvals = () => {
         </tr>
       </thead>
       <tbody>
-        {data.map(u => (
+        {filteredData.map(u => (
           <tr key={u._id || u.id}>
             <td>{u.date ? new Date(u.date).toLocaleDateString() : 'N/A'}</td>
             <td>
@@ -96,7 +140,8 @@ const Approvals = () => {
         </tr>
       </thead>
       <tbody>
-        {data.map(p => (
+        {filteredData.map(
+p => (
           <tr key={p?._id || p?.id}>
             <td>
               <div className="fw-bold">{p?.full_name || 'N/A'}</div>
@@ -110,7 +155,7 @@ const Approvals = () => {
             <td className="fw-bold text-success">PHP {(p?.net_pay ?? 0).toLocaleString()}</td>
             <td>
               <div className="small text-muted" style={{ maxWidth: '250px' }}>
-                {p?.remarks || '-'}
+                {p?.remarks || (['rejected', 'declined', 'denied'].includes(p?.status?.toLowerCase()) ? 'Automatically marked as rejected by the system.' : '-')}
               </div>
             </td>
             <td className="text-end">{getStatusBadge(p?.status)}</td>
@@ -133,10 +178,11 @@ const Approvals = () => {
         </tr>
       </thead>
       <tbody>
-        {data.map(ot => (
+        {filteredData.map(
+ot => (
           <tr key={ot.id || ot._id}>
             <td>{ot.date ? new Date(ot.date).toLocaleDateString() : 'N/A'}</td>
-            <td className="fw-bold">{ot.fullName || 'Employee'}</td>
+            <td className="fw-bold">{ot.full_name || ot.fullName || ot.employeeName || 'Employee'}</td>
             <td className="fw-bold text-primary">{formatDuration(ot.hours)}</td>
             <td className="small text-muted">{ot.reason || '-'}</td>
             <td className="text-success fw-bold">+PHP {(ot.total_pay || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
@@ -158,7 +204,8 @@ const Approvals = () => {
         </tr>
       </thead>
       <tbody>
-        {data.map(leave => (
+        {filteredData.map(
+leave => (
           <tr key={leave._id}>
             <td className="fw-bold">{leave.fullName || 'Employee'}</td>
             <td>
@@ -188,7 +235,8 @@ const Approvals = () => {
         </tr>
       </thead>
       <tbody>
-        {data.map(p => (
+        {filteredData.map(
+p => (
           <tr key={p.id || p._id}>
             <td>{p.date ? new Date(p.date).toLocaleDateString() : 'N/A'}</td>
             <td className="fw-bold">{p.full_name || 'Employee'}</td>
@@ -253,34 +301,79 @@ const Approvals = () => {
             </Button>
           </div>
 
-          <div className="ms-3 bg-light p-1 rounded-pill d-inline-flex gap-1 mb-4 shadow-sm border">
-            <Button
-              variant={period === 'today' ? 'secondary' : 'light'}
-              size="sm"
-              className="rounded-pill px-3 border-0"
-              onClick={() => setPeriod('today')}
-              style={{ fontSize: '12px', fontWeight: period === 'today' ? '700' : 'normal' }}
-            >
-              Today
-            </Button>
-            <Button
-              variant={period === 'yesterday' ? 'secondary' : 'light'}
-              size="sm"
-              className="rounded-pill px-3 border-0"
-              onClick={() => setPeriod('yesterday')}
-              style={{ fontSize: '12px', fontWeight: period === 'yesterday' ? '700' : 'normal' }}
-            >
-              Yesterday
-            </Button>
-            <Button
-              variant={period === 'all' ? 'secondary' : 'light'}
-              size="sm"
-              className="rounded-pill px-3 border-0"
-              onClick={() => setPeriod('all')}
-              style={{ fontSize: '12px', fontWeight: period === 'all' ? '700' : 'normal' }}
-            >
-              All Time
-            </Button>
+          <div className="d-flex justify-content-between align-items-center gap-3 mb-4">
+            {/* Search Bar on the Left */}
+            <div style={{ flex: 1, maxWidth: '400px' }}>
+              <Form.Control
+                type="text"
+                placeholder="Search by employee name or ID..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="rounded-pill border-0 shadow-sm px-4"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              />
+            </div>
+
+            {/* Dropdown Filters on the Right */}
+            <div className="d-flex gap-2">
+              <div style={{ width: '150px' }}>
+                <Form.Select 
+                  value={period} 
+                  onChange={(e) => { setPeriod(e.target.value); setSelectedMonth(''); }}
+                  className="rounded-pill border-0 shadow-sm px-3"
+                  style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+                >
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="lastweek">Last 7 Days</option>
+                  <option value="all">All Time</option>
+                </Form.Select>
+              </div>
+
+              <div style={{ width: '140px' }}>
+                <Form.Select 
+                  value={filterStatus} 
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="rounded-pill border-0 shadow-sm px-3"
+                  style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+                >
+                  <option value="">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </Form.Select>
+              </div>
+
+              <div style={{ width: '160px' }}>
+                <Form.Select 
+                  value={selectedMonth} 
+                  onChange={(e) => { setSelectedMonth(e.target.value); setPeriod(''); }}
+                  className="rounded-pill border-0 shadow-sm px-3"
+                  style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+                >
+                  <option value="">Specific Month</option>
+                  {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
+                    <option key={m} value={idx + 1}>{m}</option>
+                  ))}
+                </Form.Select>
+              </div>
+
+              {activeTab === 'payroll' && (
+                <div style={{ width: '180px' }}>
+                  <Form.Select 
+                    value={selectedDepartment} 
+                    onChange={(e) => setSelectedDepartment(e.target.value)}
+                    className="rounded-pill border-0 shadow-sm px-3"
+                    style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+                  >
+                    <option value="">All Departments</option>
+                    {departments.map(dept => (
+                      <option key={dept.name} value={dept.name}>{dept.name}</option>
+                    ))}
+                  </Form.Select>
+                </div>
+              )}
+            </div>
           </div>
 
           <Card className="border-0 shadow-sm rounded-4">
@@ -289,8 +382,8 @@ const Approvals = () => {
                 <div className="text-center py-5"><Spinner animation="border" variant="secondary" /></div>
               ) : error ? (
                 <Alert variant="danger">{error}</Alert>
-              ) : data.length === 0 ? (
-                <div className="text-center py-5 text-muted">No {activeTab} records found for this period.</div>
+              ) : filteredData.length === 0 ? (
+                <div className="text-center py-5 text-muted">No {activeTab} records found matching your filters.</div>
               ) : (
                 <>
                   {activeTab === 'overtime' && renderOvertimeTable()}

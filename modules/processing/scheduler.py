@@ -5,6 +5,7 @@ from typing import List, Optional, Any
 from core.database import db
 from db.models import PayrollSchedule
 from modules.activity_logs.service import ActivityLogService
+from .email_service import PayslipEmailService
 from .service import PayrollProcessingService
 
 class PayrollSchedulerService:
@@ -42,6 +43,7 @@ class PayrollSchedulerService:
             try:
                 # Run the check
                 await cls.check_and_run_automated_payroll()
+                await cls.process_due_payslip_emails()
             except Exception as e:
                 print(f"[ERROR] Automated Payroll Runner: {str(e)}")
 
@@ -209,3 +211,14 @@ class PayrollSchedulerService:
             results.append({"cycle": sched["cycle_name"], "processed": count})
             
         return results
+
+    @classmethod
+    async def process_due_payslip_emails(cls):
+        summary = await PayslipEmailService.process_due_payslip_emails()
+        if summary.get("processed", 0):
+            await cls._log_automation_event(
+                "Automated payslip email delivery processed",
+                target_info=f"{summary['processed']} due email(s)",
+                metadata=summary,
+            )
+        return summary

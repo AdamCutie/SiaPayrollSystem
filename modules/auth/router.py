@@ -16,6 +16,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     role: str
+    employee_id: str
 
 @router.post("/login", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -27,8 +28,9 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     If ALLOW_PASSWORDLESS_LOGIN is enabled, users without a password record can still log in (dev-only).
     """
     hr_coll = db[SYNCED_HR_EMPLOYEES_COLLECTION]
-    # 1. Find user by email in our synced mirror
-    sync_doc = await hr_coll.find_one({"payload.email": form_data.username})
+    # 1. Find user by email in our synced mirror (case-insensitive)
+    username = form_data.username.strip().lower()
+    sync_doc = await hr_coll.find_one({"payload.email": {"$regex": f"^{username}$", "$options": "i"}})
     
     if not sync_doc:
         raise HTTPException(
@@ -39,7 +41,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
     user = sync_doc.get("payload", {})
     email = user.get("email", "")
-    employee_id = str(user.get("_id", ""))
+    employee_id = str(sync_doc.get("_id", ""))
 
     # 2. Check Role (Admin vs Employee)
     hr_role = str(user.get("role", "")).strip()
@@ -72,7 +74,8 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     return {
         "access_token": access_token, 
         "token_type": "bearer",
-        "role": role
+        "role": role,
+        "employee_id": employee_id
     }
 
 
@@ -104,7 +107,7 @@ async def set_password(request: SetPasswordRequest, _: object = Depends(require_
     user = sync_doc.get("payload", {})
     await AuthUserService.upsert_password(
         email=str(request.email),
-        employee_id=str(user.get("_id", "")),
+        employee_id=str(sync_doc.get("_id", "")),
         plain_password=request.new_password,
     )
     return {"message": "Password set successfully."}

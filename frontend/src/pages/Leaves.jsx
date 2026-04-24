@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Badge, Button, Spinner, Alert } from 'react-bootstrap';
-import axios from 'axios';
+import api from '../api/auth';
 import 'bootstrap/dist/css/bootstrap.min.css';
 
 const Leaves = () => {
@@ -11,7 +11,7 @@ const Leaves = () => {
   useEffect(() => {
     const fetchLeaves = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/payroll/leaves/logs');
+        const response = await api.get('/leaves/logs');
         setLeavesData(response.data);
         setLoading(false);
       } catch (err) {

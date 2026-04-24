@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Table, Card, Badge, Form } from 'react-bootstrap';
-import axios from 'axios';
+import api from '../api/auth';
 import { Search, Download, Building2 } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import TopBar from '../components/layout/TopBar';
 import DepartmentCard from '../components/employees/DepartmentCard';
 
 const Employees = () => {
+  const location = useLocation();
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16,11 +18,18 @@ const Employees = () => {
   const [statusFilter, setStatusFilter] = useState('All Status');
 
   useEffect(() => {
+    // Sync search query from URL if present
+    const params = new URLSearchParams(location.search);
+    const q = params.get('search');
+    setSearchQuery(q || ''); // Reset to empty string if q is null
+  }, [location.search]);
+
+  useEffect(() => {
     const fetchData = async () => {
       try {
         const [empRes, deptRes] = await Promise.all([
-          axios.get('http://localhost:8000/payroll/employees/list'),
-          axios.get('http://localhost:8000/payroll/departments/summary')
+          api.get('/employees/list'),
+          api.get('/departments/summary')
         ]);
         setEmployees(empRes.data);
         setDepartments(deptRes.data);

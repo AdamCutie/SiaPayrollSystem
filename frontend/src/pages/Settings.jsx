@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Button, Row, Col, Spinner, Alert } from 'react-bootstrap';
 import TopBar from '../components/layout/TopBar';
-import axios from 'axios';
+import api from '../api/auth';
 import { Calendar, Database, RefreshCw } from 'lucide-react';
 
 const Settings = () => {
@@ -16,7 +16,7 @@ const Settings = () => {
 
   const fetchHrSyncStatus = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/payroll/sync/hr/status');
+      const response = await api.get('/sync/hr/status');
       setHrSyncStatus(response.data);
       setAutoSyncEnabled(Boolean(response.data.auto_sync_enabled));
       setAutoSyncInterval(response.data.interval_minutes || 15);
@@ -35,7 +35,7 @@ const Settings = () => {
       setSyncing(true);
       setSyncResult(null);
       const year = new Date().getFullYear();
-      const response = await axios.post(`http://localhost:8000/payroll/holidays/sync?year=${year}`);
+      const response = await api.post(`/holidays/sync?year=${year}`);
       setSyncResult({ type: 'success', message: response.data.message });
       setSyncing(false);
     } catch (err) {
@@ -48,7 +48,7 @@ const Settings = () => {
     try {
       setHrSyncing(true);
       setHrSyncError(null);
-      await axios.post('http://localhost:8000/payroll/sync/hr/run');
+      await api.post('/sync/hr/run');
       await fetchHrSyncStatus();
       setHrSyncing(false);
     } catch (err) {
@@ -61,7 +61,7 @@ const Settings = () => {
     try {
       setSavingHrConfig(true);
       setHrSyncError(null);
-      await axios.post('http://localhost:8000/payroll/sync/hr/config', {
+      await api.post('/sync/hr/config', {
         auto_sync_enabled: autoSyncEnabled,
         interval_minutes: Number(autoSyncInterval) || 15,
       });

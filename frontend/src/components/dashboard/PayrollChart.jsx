@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card } from 'react-bootstrap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import axios from 'axios';
+import api from '../../api/auth';
 
 const APPROVED_STATUSES = new Set(['approved', 'completed']);
 const DELAYED_STATUSES = new Set(['pending', 'delayed']);
@@ -13,7 +13,7 @@ const PayrollChart = () => {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/payroll/processing/history');
+        const response = await api.get('/processing/history');
 
         const grouped = response.data.reduce((acc, curr) => {
           const normalizedStatus = String(curr.status || '').trim().toLowerCase();

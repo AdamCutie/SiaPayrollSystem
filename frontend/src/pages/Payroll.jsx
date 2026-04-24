@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Form, Button, Table, Badge, Spinner, Alert, Modal } from 'react-bootstrap';
-import axios from 'axios';
+import api from '../api/auth';
 import { Search, Check, Download, Settings, Users, FileText, Eye, Calendar, Zap, ZapOff, Trash2 } from 'lucide-react';
 import TopBar from '../components/layout/TopBar';
 
 const Payroll = () => {
-  const [view, setView] = useState('generation'); // 'generation', 'configuration', 'payslips', 'schedule'
+  const [view, setView] = useState('generation'); // 'generation', 'configuration', 'payslips', 'emails', 'schedule'
   const [step, setStep] = useState(1); // Start at Step 1
   const [employees, setEmployees] = useState([]);
   const [readinessSummary, setReadinessSummary] = useState({ ready_count: 0, incomplete_count: 0 });
@@ -38,6 +38,9 @@ const Payroll = () => {
   const [selectedPayslipMonth, setSelectedPayslipMonth] = useState('');
   const [selectedPayslip, setSelectedPayslip] = useState(null);
   const [showPayslipModal, setShowPayslipModal] = useState(false);
+  const [emailStatusFilter, setEmailStatusFilter] = useState('');
+  const [financeStatusFilter, setFinanceStatusFilter] = useState('');
+  const [emailActionLoading, setEmailActionLoading] = useState(false);
 
   // Automation Control State
   const [schedule, setSchedule] = useState([]);
@@ -46,7 +49,7 @@ const Payroll = () => {
 
   const trackActivity = async (action, targetInfo, metadata = {}) => {
     try {
-      await axios.post('http://localhost:8000/payroll/activity-logs/track', {
+      await api.post('/activity-logs/track', {
         module: 'Payroll',
         action,
         target_info: targetInfo,
@@ -64,7 +67,7 @@ const Payroll = () => {
   }, []);
 
   useEffect(() => {
-    if (view === 'payslips') {
+    if (view === 'payslips' || view === 'emails') {
       fetchHistory();
     } else if (view === 'schedule') {
       fetchSchedule();
@@ -74,7 +77,7 @@ const Payroll = () => {
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:8000/payroll/processing/readiness');
+      const response = await api.get('/processing/readiness');
       setEmployees(response.data.employees);
       setReadinessSummary({
         ready_count: response.data.ready_count,
@@ -90,7 +93,7 @@ const Payroll = () => {
   const fetchHistory = async () => {
     try {
       setHistoryLoading(true);
-      let url = 'http://localhost:8000/payroll/processing/history';
+      let url = '/processing/history';
       const params = [];
       if (selectedPayslipMonth) {
         params.push(`month=${selectedPayslipMonth}`);
@@ -102,7 +105,7 @@ const Payroll = () => {
         url += `?${params.join('&')}`;
       }
       
-      const response = await axios.get(url);
+      const response = await api.get(url);
       setPayrollHistory(response.data);
       setHistoryLoading(false);
     } catch (err) {
@@ -114,7 +117,7 @@ const Payroll = () => {
   const fetchSchedule = async () => {
     try {
       setScheduleLoading(true);
-      const response = await axios.get('http://localhost:8000/payroll/processing/schedule');
+      const response = await api.get('/processing/schedule');
       setSchedule(response.data);
       // Determine if automation is on based on any unprocessed cycle
       const anyAuto = response.data.some(s => !s.is_processed && s.automation_on);
@@ -129,7 +132,7 @@ const Payroll = () => {
   const handleToggleAutomation = async () => {
     const newState = !isAutomationOn;
     try {
-      await axios.patch(`http://localhost:8000/payroll/processing/schedule/automation?enabled=${newState}`);
+      await api.patch(`/processing/schedule/automation?enabled=${newState}`);
       setIsAutomationOn(newState);
       fetchSchedule(); 
     } catch (err) {
@@ -140,7 +143,7 @@ const Payroll = () => {
   const fetchEmployeeAdjustments = async (employeeId) => {
     try {
       setAdjustmentsLoading(true);
-      const response = await axios.get(`http://localhost:8000/payroll/processing/adjustments/${employeeId}`);
+      const response = await api.get(`/processing/adjustments/${employeeId}`);
       setEmployeeAdjustments(response.data);
       setAdjustmentsLoading(false);
     } catch (err) {
@@ -152,7 +155,7 @@ const Payroll = () => {
   const handleAddRetro = async () => {
     if (!retroEmployee || !retroData.amount) return;
     try {
-      await axios.post('http://localhost:8000/payroll/processing/adjustments', {
+      await api.post('/processing/adjustments', {
         employee_id: retroEmployee.id,
         employee_number: retroEmployee.employee_id,
         amount: parseFloat(retroData.amount),
@@ -170,7 +173,7 @@ const Payroll = () => {
   const handleDeleteAdjustment = async (adjId) => {
     if (!window.confirm("Are you sure you want to delete this pending adjustment?")) return;
     try {
-      await axios.delete(`http://localhost:8000/payroll/processing/adjustments/${adjId}`);
+      await api.delete(`/processing/adjustments/${adjId}`);
       fetchEmployeeAdjustments(retroEmployee.id);
     } catch (err) {
       alert(err.response?.data?.detail || "Failed to delete adjustment.");
@@ -186,7 +189,7 @@ const Payroll = () => {
         end_date: `${dateRange.end}T23:59:59`,
         employee_ids: selectedIds,
       };
-      const response = await axios.post('http://localhost:8000/payroll/processing/run-selective', payload);
+      const response = await api.post('/processing/run-selective', payload);
       setProcessedCount(response.data.processed_count || 0);
       setIsProcessing(false);
       setStep(4); // Move to final step on success
@@ -195,6 +198,30 @@ const Payroll = () => {
       setError("Failed to process payroll. The backend returned an error.");
       setIsProcessing(false);
       console.error(err);
+    }
+  };
+
+  const handleSendSingleEmail = async (snapshotId) => {
+    try {
+      setEmailActionLoading(true);
+      await api.post(`/processing/${snapshotId}/email-send`);
+      await fetchHistory();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to send payslip email.');
+    } finally {
+      setEmailActionLoading(false);
+    }
+  };
+
+  const handleResendFailedEmails = async () => {
+    try {
+      setEmailActionLoading(true);
+      await api.post('/processing/email-resend-failed');
+      await fetchHistory();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to resend payslip emails.');
+    } finally {
+      setEmailActionLoading(false);
     }
   };
 
@@ -215,7 +242,7 @@ const Payroll = () => {
   const handleEditConfig = async (emp) => {
     setEditingEmployee(emp);
     try {
-      const response = await axios.get(`http://localhost:8000/payroll/employees/${emp.id}/payroll-config`);
+      const response = await api.get(`/employees/${emp.id}/payroll-config`);
       setConfigData(response.data || {});
       setShowConfigModal(true);
     } catch (err) {
@@ -266,6 +293,15 @@ const Payroll = () => {
     record.employee_number.includes(payslipSearch)
   );
 
+  const filteredEmailHistory = payrollHistory.filter(record => {
+    const matchesSearch =
+      record.full_name.toLowerCase().includes(payslipSearch.toLowerCase()) ||
+      record.employee_number.includes(payslipSearch);
+    const matchesEmailStatus = !emailStatusFilter || (record.email_delivery_status || 'pending') === emailStatusFilter;
+    const matchesFinanceStatus = !financeStatusFilter || (record.status || '').toLowerCase() === financeStatusFilter.toLowerCase();
+    return matchesSearch && matchesEmailStatus && matchesFinanceStatus;
+  });
+
   const getContractBadge = (type) => {
     // HR Rule: Map all temporary types to "Probationary"
     const isRegular = type === 'Regular';
@@ -297,6 +333,26 @@ const Payroll = () => {
         style={{ fontSize: '11px', borderRadius: '50px' }}
       >
         {status?.toUpperCase() || 'PENDING'}
+      </Badge>
+    );
+  };
+
+  const getEmailStatusBadge = (status) => {
+    const normalized = (status || 'pending').toLowerCase();
+    const colorMap = {
+      sent: 'success',
+      failed: 'danger',
+      skipped: 'secondary',
+      pending: 'warning',
+    };
+    const color = colorMap[normalized] || 'secondary';
+    return (
+      <Badge
+        bg={`${color}-subtle`}
+        className={`text-${color} border border-${color} px-3`}
+        style={{ fontSize: '11px', borderRadius: '50px' }}
+      >
+        {normalized.toUpperCase()}
       </Badge>
     );
   };
@@ -633,7 +689,7 @@ const Payroll = () => {
                 </Form.Group>
               </Col>
               </Row>
-              {(configData.sssEmployeeShare > 0 || configData.sssMPFEmployeeShare > 0) && (
+              {/* {(configData.sssEmployeeShare > 0 || configData.sssMPFEmployeeShare > 0) && (
               <div className="mt-2 mb-3 p-3 rounded-3 bg-light border">
                 <small className="d-block text-muted fw-bold mb-2">SSS 2025 Breakdown</small>
                 <Row>
@@ -654,10 +710,10 @@ const Payroll = () => {
                   Employer-side amounts are tracked separately: Regular SSS, EC, and MPF employer shares are not deducted from employee pay.
                 </small>
               </div>
-              )}
-              <small className="d-block text-muted mt-n2 mb-3">
+              )} */}
+              {/* <small className="d-block text-muted mt-n2 mb-3">
                 Withholding tax is not displayed as a fixed amount in the profile because it is <strong>dynamically calculated</strong> during each payroll run. The exact amount depends on the employee's actual taxable earnings for that period (including basic pay, overtime, night differential, and absences).
-              </small>
+              </small> */}
             {/* --- SECTION 3: LOANS & RATES --- */}
             <h6 className="fw-bold mb-3 border-bottom pb-2 mt-4 text-danger d-flex justify-content-between align-items-center">
               3. Active Loans & Penalty Rates
@@ -735,56 +791,53 @@ const Payroll = () => {
 
   const renderPayslipsContent = () => (
     <div>
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <h5 className="fw-bold mb-0" style={{ color: '#5A4343' }}>Payroll History & Payslips</h5>
-        <div className="position-relative w-25">
-          <Search className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" size={18} />
-          <Form.Control 
-            type="text" 
-            placeholder="Search history..." 
-            className="rounded-pill ps-5 border-0 shadow-sm" 
-            style={{ height: '40px' }}
-            value={payslipSearch}
-            onChange={(e) => setPayslipSearch(e.target.value)}
-          />
-        </div>
-      </div>
+      <div className="mb-4">
+        <h5 className="fw-bold mb-3" style={{ color: '#5A4343' }}>Payroll History & Payslips</h5>
+        
+        <div className="d-flex justify-content-between align-items-center">
+          {/* Search Bar on the Left */}
+          <div className="position-relative" style={{ width: '400px' }}>
+            <Search className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" size={18} />
+            <Form.Control 
+              type="text" 
+              placeholder="Search by employee name or ID..." 
+              className="rounded-pill ps-5 border-0 shadow-sm" 
+              style={{ height: '40px', fontSize: '13px', fontWeight: '600' }}
+              value={payslipSearch}
+              onChange={(e) => setPayslipSearch(e.target.value)}
+            />
+          </div>
 
-      <div className="d-flex justify-content-between align-items-center mb-4">
-        <div className="d-flex gap-2">
-          {[
-            { label: 'Today', value: 'today' },
-            { label: 'Yesterday', value: 'yesterday' },
-            { label: 'Last 7 Days', value: 'lastweek' },
-            { label: 'All Time', value: 'all' }
-          ].map((btn) => (
-            <Button
-              key={btn.value}
-              onClick={() => { setHistoryPeriod(btn.value); setSelectedPayslipMonth(''); }}
-              className="rounded-pill px-4 shadow-sm border-0"
-              style={{ 
-                backgroundColor: !selectedPayslipMonth && historyPeriod === btn.value ? '#D29191' : '#FFFFFF',
-                color: !selectedPayslipMonth && historyPeriod === btn.value ? 'white' : '#A08E8E',
-                fontWeight: '600', fontSize: '13px'
-              }}
-            >
-              {btn.label}
-            </Button>
-          ))}
-        </div>
+          {/* Dropdown Filters on the Right */}
+          <div className="d-flex gap-2">
+            <div style={{ width: '160px' }}>
+              <Form.Select 
+                value={historyPeriod} 
+                onChange={(e) => { setHistoryPeriod(e.target.value); setSelectedPayslipMonth(''); }}
+                className="rounded-pill border-0 shadow-sm px-3"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              >
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="lastweek">Last 7 Days</option>
+                <option value="all">All Time</option>
+              </Form.Select>
+            </div>
 
-        <div style={{ width: '200px' }}>
-          <Form.Select 
-            value={selectedPayslipMonth} 
-            onChange={(e) => { setSelectedPayslipMonth(e.target.value); setHistoryPeriod(''); }}
-            className="rounded-pill border-0 shadow-sm px-4"
-            style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
-          >
-            <option value="">Specific Month</option>
-            {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
-              <option key={m} value={idx + 1}>{m}</option>
-            ))}
-          </Form.Select>
+            <div style={{ width: '180px' }}>
+              <Form.Select 
+                value={selectedPayslipMonth} 
+                onChange={(e) => { setSelectedPayslipMonth(e.target.value); setHistoryPeriod(''); }}
+                className="rounded-pill border-0 shadow-sm px-4"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              >
+                <option value="">Specific Month</option>
+                {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
+                  <option key={m} value={idx + 1}>{m}</option>
+                ))}
+              </Form.Select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -849,7 +902,7 @@ const Payroll = () => {
             <div id="printable-payslip" className="p-4" style={{ backgroundColor: '#fff', color: '#000', fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}>
               {/* --- HEADER SECTION --- */}
               <div className="text-center mb-4">
-                <h4 className="fw-bold mb-1">Sia Payroll System</h4>
+                {/* <h4 className="fw-bold mb-1">Sia Payroll System</h4> */}
                 <div className="text-muted small">
                   Payslip for the Period {formatDateLabel(selectedPayslip.pay_period_start)} - {formatDateLabel(selectedPayslip.pay_period_end)}
                 </div>
@@ -1307,6 +1360,144 @@ const Payroll = () => {
     </div>
   );
 
+  const renderEmailTrackingContent = () => (
+    <div>
+      <div className="mb-4">
+        <div className="d-flex justify-content-between align-items-center mb-3">
+          <h5 className="fw-bold mb-0" style={{ color: '#5A4343' }}>Payslip Email Tracking</h5>
+          <Button
+            variant="outline-primary"
+            className="rounded-pill px-4"
+            disabled={emailActionLoading}
+            onClick={handleResendFailedEmails}
+          >
+            {emailActionLoading ? <Spinner animation="border" size="sm" className="me-2" /> : null}
+            Retry Failed / Skipped
+          </Button>
+        </div>
+
+        <div className="d-flex justify-content-between align-items-center gap-3">
+          <div className="position-relative" style={{ width: '360px' }}>
+            <Search className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" size={18} />
+            <Form.Control
+              type="text"
+              placeholder="Search by employee name or ID..."
+              className="rounded-pill ps-5 border-0 shadow-sm"
+              style={{ height: '40px', fontSize: '13px', fontWeight: '600' }}
+              value={payslipSearch}
+              onChange={(e) => setPayslipSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="d-flex gap-2">
+            <div style={{ width: '160px' }}>
+              <Form.Select
+                value={financeStatusFilter}
+                onChange={(e) => setFinanceStatusFilter(e.target.value)}
+                className="rounded-pill border-0 shadow-sm px-3"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              >
+                <option value="">All Finance</option>
+                <option value="Approved">Approved</option>
+                <option value="Completed">Completed</option>
+                <option value="Pending">Pending</option>
+                <option value="Rejected">Rejected</option>
+              </Form.Select>
+            </div>
+            <div style={{ width: '160px' }}>
+              <Form.Select
+                value={emailStatusFilter}
+                onChange={(e) => setEmailStatusFilter(e.target.value)}
+                className="rounded-pill border-0 shadow-sm px-3"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              >
+                <option value="">All Email</option>
+                <option value="pending">Pending</option>
+                <option value="sent">Sent</option>
+                <option value="failed">Failed</option>
+                <option value="skipped">Skipped</option>
+              </Form.Select>
+            </div>
+            <div style={{ width: '180px' }}>
+              <Form.Select
+                value={selectedPayslipMonth}
+                onChange={(e) => { setSelectedPayslipMonth(e.target.value); setHistoryPeriod(''); }}
+                className="rounded-pill border-0 shadow-sm px-4"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              >
+                <option value="">Specific Month</option>
+                {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
+                  <option key={m} value={idx + 1}>{m}</option>
+                ))}
+              </Form.Select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="table-responsive">
+        <Table hover className="align-middle">
+          <thead>
+            <tr className="text-muted" style={{ fontSize: '12px' }}>
+              <th>EMPLOYEE</th>
+              <th>PAY DATE</th>
+              <th>FINANCE</th>
+              <th>EMAIL</th>
+              <th>LAST UPDATE</th>
+              <th>REASON</th>
+              <th className="text-end">ACTION</th>
+            </tr>
+          </thead>
+          <tbody>
+            {historyLoading ? (
+              <tr><td colSpan="7" className="text-center py-5"><Spinner /></td></tr>
+            ) : filteredEmailHistory.map(record => (
+              <tr key={record._id}>
+                <td>
+                  <div className="fw-bold">{record.full_name}</div>
+                  <small className="text-muted">{record.employee_number}</small>
+                </td>
+                <td>
+                  <Badge bg="light" className="text-dark border">
+                    {record.pay_date ? new Date(record.pay_date).toLocaleDateString() : 'No pay date'}
+                  </Badge>
+                </td>
+                <td>{getStatusBadge(record.status)}</td>
+                <td>{getEmailStatusBadge(record.email_delivery_status)}</td>
+                <td className="text-muted" style={{ fontSize: '13px' }}>
+                  {record.email_sent_at
+                    ? new Date(record.email_sent_at).toLocaleString()
+                    : record.email_last_attempt_at
+                      ? new Date(record.email_last_attempt_at).toLocaleString()
+                      : '-'}
+                </td>
+                <td className="text-muted" style={{ maxWidth: '240px', fontSize: '12px' }}>
+                  {record.email_failure_reason || '-'}
+                </td>
+                <td className="text-end">
+                  <Button
+                    variant="outline-primary"
+                    size="sm"
+                    className="rounded-pill px-3"
+                    disabled={
+                      emailActionLoading ||
+                      !['approved', 'completed'].includes((record.status || '').toLowerCase()) ||
+                      (record.email_delivery_status || '').toLowerCase() === 'sent' ||
+                      (record.pay_date && new Date(record.pay_date) > new Date())
+                    }
+                    onClick={() => handleSendSingleEmail(record._id)}
+                  >
+                    Resend
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+    </div>
+  );
+
   const renderScheduleContent = () => (
     <div>
       <div className="d-flex justify-content-between align-items-center mb-4">
@@ -1362,13 +1553,15 @@ const Payroll = () => {
         <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'schedule' ? '#D29191' : '#FFFFFF', color: view === 'schedule' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('schedule')}><Calendar size={18} />Schedule</Button>
         <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'configuration' ? '#D29191' : '#FFFFFF', color: view === 'configuration' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('configuration')}><Settings size={18} />Configuration</Button>
         <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'payslips' ? '#D29191' : '#FFFFFF', color: view === 'payslips' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('payslips')}><FileText size={18} />Payslips</Button>
+        <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'emails' ? '#D29191' : '#FFFFFF', color: view === 'emails' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('emails')}><FileText size={18} />Email Tracking</Button>
       </div>
       {view === 'generation' && <WizardProgress />}
       <Card className="border-0 shadow-sm rounded-4 p-4">
         <Card.Body>
           {view === 'generation' ? renderGenerationContent() : 
            view === 'schedule' ? renderScheduleContent() :
-           view === 'configuration' ? renderConfigurationContent() : 
+           view === 'configuration' ? renderConfigurationContent() :
+           view === 'emails' ? renderEmailTrackingContent() :
            renderPayslipsContent()}
         </Card.Body>
         {view === 'generation' && step < 4 && (

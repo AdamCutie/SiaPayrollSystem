@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from core.auth import CurrentUser, get_current_user, require_admin
 from modules.activity_logs.service import ActivityLogService
+from .email_service import PayslipEmailService
 from .service import PayrollProcessingService
 from .scheduler import PayrollSchedulerService
 from db.models import PayrollSnapshot, PayrollSchedule
@@ -225,17 +226,66 @@ async def get_payroll_history(
     department: Optional[str] = Query(None),
     period: Optional[str] = Query(None),
     month: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None)
 ):
-    """Fetches history with optional department, period, and month filters."""
+    """Fetches history with optional department, period, month, and status filters."""
     return await PayrollProcessingService.get_payroll_history(
         department=department,
         period=period,
         month=month,
+        status=status,
         start_date=start_date,
         end_date=end_date
     )
+
+@router.post("/{snapshot_id}/email-send")
+async def send_single_payslip_email(snapshot_id: str, user: CurrentUser = Depends(get_current_user)):
+    try:
+        result = await PayslipEmailService.send_snapshot_email(snapshot_id, force_retry=True)
+        await ActivityLogService.log_local_activity(
+            module="Payroll",
+            action="Manually triggered payslip email",
+            target_info=f"Snapshot ID: {snapshot_id}",
+            user=user,
+            metadata=result,
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send payslip email: {exc}")
+
+
+@router.post("/email-send-due")
+async def send_due_payslip_emails(user: CurrentUser = Depends(get_current_user)):
+    try:
+        result = await PayslipEmailService.process_due_payslip_emails()
+        await ActivityLogService.log_local_activity(
+            module="Payroll",
+            action="Triggered due payslip emails",
+            target_info=f"Processed {result.get('processed', 0)} due email(s)",
+            user=user,
+            metadata=result,
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send due payslip emails: {exc}")
+
+
+@router.post("/email-resend-failed")
+async def resend_failed_payslip_emails(user: CurrentUser = Depends(get_current_user)):
+    try:
+        result = await PayslipEmailService.resend_failed_or_skipped()
+        await ActivityLogService.log_local_activity(
+            module="Payroll",
+            action="Triggered bulk payslip email resend",
+            target_info=f"Processed {result.get('processed', 0)} retry email(s)",
+            user=user,
+            metadata=result,
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to resend payslip emails: {exc}")
 
 @router.get("/schedule", response_model=List[PayrollSchedule])
 async def get_payroll_schedule(year: int = 2026):

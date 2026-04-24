@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from core.auth import CurrentUser, get_current_user, require_user
+from core.auth import CurrentUser, get_current_user, require_admin
 from .service import ActivityLogService
 
 
 router = APIRouter(
     prefix="/activity-logs",
     tags=["Activity Logs"],
-    dependencies=[Depends(require_user)],
+    dependencies=[Depends(require_admin)],
 )
 
 

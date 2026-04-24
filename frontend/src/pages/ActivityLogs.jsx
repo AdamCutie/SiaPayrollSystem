@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Users2
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../api/auth';
 import TopBar from '../components/layout/TopBar';
 
 const syncCards = [
@@ -97,7 +97,7 @@ const ActivityLogs = () => {
       try {
         setLoading(true);
         setError(null);
-        const response = await axios.get(`http://localhost:8000/payroll/activity-logs?limit=200&period=${timeFilter}`);
+        const response = await api.get(`/activity-logs?limit=200&period=${timeFilter}`);
         setLogs(response.data || []);
       } catch (err) {
         console.error(err);
