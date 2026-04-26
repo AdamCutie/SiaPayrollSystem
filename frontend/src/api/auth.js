@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Base API URL - for local development
-const API_BASE_URL = 'http://localhost:8001/payroll';
+const API_BASE_URL = 'http://localhost:8000/payroll';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

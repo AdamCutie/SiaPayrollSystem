@@ -243,7 +243,7 @@ async def get_payroll_history(
 @router.post("/{snapshot_id}/email-send")
 async def send_single_payslip_email(snapshot_id: str, user: CurrentUser = Depends(get_current_user)):
     try:
-        result = await PayslipEmailService.send_snapshot_email(snapshot_id, force_retry=True)
+        result = await PayslipEmailService.send_snapshot_email(snapshot_id, force_retry=True, ignore_due_date=True)
         await ActivityLogService.log_local_activity(
             module="Payroll",
             action="Manually triggered payslip email",
