@@ -1,0 +1,34 @@
+<svg width="640" height="220" viewBox="0 0 640 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="siaLogoRose" x1="82" y1="40" x2="298" y2="195" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E89A92"/>
+      <stop offset="1" stop-color="#D87F79"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(8 12)">
+    <path d="M65 148C53 133 46 120 44 105C41 88 46 71 58 55C46 79 49 102 66 122C72 129 75 136 72 144C71 146 68 148 65 148Z" fill="#9C5C55"/>
+    <path d="M88 129C82 127 76 123 72 116C69 110 68 102 71 95C73 89 79 82 85 77C91 71 95 64 96 56C98 71 104 81 116 89C130 98 141 107 148 117C163 139 163 162 149 182C137 198 116 204 93 201C115 194 126 183 128 169C130 153 121 141 104 135L88 129Z" fill="url(#siaLogoRose)"/>
+    <path d="M72 134C61 130 53 120 50 106C47 93 49 79 56 66" stroke="#9C5C55" stroke-width="3.8" stroke-linecap="round"/>
+    <path d="M74 103C82 105 89 103 95 97" stroke="#9C5C55" stroke-width="3.8" stroke-linecap="round"/>
+    <path d="M70 131C79 135 83 143 83 154C83 163 88 170 99 175" stroke="#9C5C55" stroke-width="3.8" stroke-linecap="round"/>
+    <path d="M95 83C99 92 101 102 101 113" stroke="white" stroke-width="4.2" stroke-linecap="round"/>
+
+    <path d="M132 55C143 33 160 24 180 26C176 44 168 61 152 74C145 69 139 63 132 55Z" fill="#A8645C"/>
+    <path d="M176 34L145 66" stroke="white" stroke-width="3.4" stroke-linecap="round"/>
+
+    <path d="M170 38C181 15 201 6 223 8C219 31 207 50 187 65C181 57 176 48 170 38Z" fill="#A8645C"/>
+    <path d="M214 18L183 57" stroke="white" stroke-width="3.4" stroke-linecap="round"/>
+
+    <path d="M184 76C206 70 224 75 238 91C222 101 205 102 186 95C185 89 184 83 184 76Z" fill="#A8645C"/>
+    <path d="M197 84L225 90" stroke="white" stroke-width="3.4" stroke-linecap="round"/>
+
+    <path d="M95 84C123 105 147 120 168 131C188 142 212 149 239 150" stroke="white" stroke-width="4.2" stroke-linecap="round" opacity="0.95"/>
+  </g>
+
+  <g transform="translate(250 62)">
+    <path d="M0 66C44 19 78 -2 104 1C83 13 60 34 38 66C68 41 92 31 111 36C114 55 91 72 42 87L0 66Z" fill="url(#siaLogoRose)"/>
+    <text x="48" y="104" fill="#E3A09A" font-size="88" font-family="Georgia, 'Times New Roman', serif" font-style="italic">e</text>
+    <text x="92" y="104" fill="#DDA09A" font-size="88" font-family="Georgia, 'Times New Roman', serif">essentials</text>
+  </g>
+</svg>

@@ -1418,6 +1418,19 @@ const Payroll = () => {
                 <option value="skipped">Skipped</option>
               </Form.Select>
             </div>
+            <div style={{ width: '160px' }}>
+              <Form.Select 
+                value={historyPeriod} 
+                onChange={(e) => { setHistoryPeriod(e.target.value); setSelectedPayslipMonth(''); }}
+                className="rounded-pill border-0 shadow-sm px-3"
+                style={{ fontSize: '13px', fontWeight: '600', height: '40px' }}
+              >
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="lastweek">Last 7 Days</option>
+                <option value="all">All Time</option>
+              </Form.Select>
+            </div>
             <div style={{ width: '180px' }}>
               <Form.Select
                 value={selectedPayslipMonth}
@@ -1481,9 +1494,7 @@ const Payroll = () => {
                     className="rounded-pill px-3"
                     disabled={
                       emailActionLoading ||
-                      !['approved', 'completed'].includes((record.status || '').toLowerCase()) ||
-                      (record.email_delivery_status || '').toLowerCase() === 'sent' ||
-                      (record.pay_date && new Date(record.pay_date) > new Date())
+                      !['approved', 'completed'].includes((record.status || '').toLowerCase())
                     }
                     onClick={() => handleSendSingleEmail(record._id)}
                   >
