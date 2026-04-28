@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Row, Col, Card, Badge, ListGroup, Spinner } from 'react-bootstrap';
 import { User, Mail, Briefcase, Calendar, MapPin, Phone, ShieldCheck, DollarSign, X, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import ImageUpload from '../common/ImageUpload';
 import api from '../../api/auth';
 
 const ProfileModal = () => {
@@ -30,6 +31,14 @@ const ProfileModal = () => {
   }, [isProfileOpen, user]);
 
   const handleClose = () => setIsProfileOpen(false);
+
+  const handleUploadSuccess = (newUrl, newOffset) => {
+    setProfileData(prev => ({
+      ...prev,
+      profile_picture_url: newUrl,
+      profile_picture_offset_y: newOffset
+    }));
+  };
 
   return (
     <Modal 
@@ -63,13 +72,13 @@ const ProfileModal = () => {
                 className="h-100 p-5 text-center d-flex flex-column align-items-center justify-content-center" 
                 style={{ background: 'linear-gradient(180deg, #A8867F 0%, #D4B2A7 100%)', borderRadius: '30px 0 0 30px' }}
               >
-                <div 
-                  className="bg-white rounded-circle d-inline-flex align-items-center justify-content-center mb-4 shadow-lg border border-4 border-white"
-                  style={{ width: '120px', height: '120px' }}
-                >
-                  <User size={60} style={{ color: '#A8867F' }} />
-                </div>
-                <h3 className="text-white fw-bold mb-1">{profileData.identity.firstName} {profileData.identity.lastName}</h3>
+                <ImageUpload 
+                  currentImageUrl={profileData.profile_picture_url} 
+                  initialOffsetY={profileData.profile_picture_offset_y}
+                  onUploadSuccess={handleUploadSuccess}
+                />
+                
+                <h3 className="text-white fw-bold mb-1 mt-4">{profileData.identity.firstName} {profileData.identity.lastName}</h3>
                 <p className="text-white-50 mb-3">{profileData.identity.position}</p>
                 <Badge bg="white" text="dark" className="rounded-pill px-4 py-2 shadow-sm">
                   {profileData.identity.contractType}

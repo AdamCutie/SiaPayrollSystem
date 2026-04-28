@@ -37,6 +37,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('email', session.email);
       localStorage.setItem('employee_id', session.employee_id);
       
+      setIsProfileOpen(false); // Explicitly ensure profile is closed on fresh login
       setUser(session);
       return session;
     } catch (error) {
@@ -49,6 +50,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('role');
     localStorage.removeItem('email');
     localStorage.removeItem('employee_id');
+    setIsProfileOpen(false); // Explicitly close profile on logout
     setUser(null);
   };
 
@@ -63,7 +65,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   if (loading) {
-    return null; // Or a loading spinner
+    return null; 
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

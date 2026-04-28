@@ -36,17 +36,18 @@ body {
 
 .sidebar-brand-frame {
   width: 100%;
-  max-width: 228px;
-  height: 144px;
+  max-width: 240px;
+  height: 120px;
   margin: 0 auto;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,247,247,0.96));
-  box-shadow: 0 12px 28px rgba(210, 145, 145, 0.18);
-  border: 1px solid rgba(210, 145, 145, 0.14);
+  border-radius: 50% / 50%; /* Consistent elliptical oval shape */
+  background: white;
+  box-shadow: 0 10px 25px rgba(168, 134, 127, 0.15);
+  border: 4px solid rgba(255, 255, 255, 0.4);
+  padding: 2px 5px; /* Minimal padding for maximum logo size */
 }
 
 .sidebar-brand-logo {
@@ -55,10 +56,8 @@ body {
   display: block;
   margin: 0;
   object-fit: contain;
-  mix-blend-mode: multiply;
-  transform: scale(1.18);
+  transform: scale(1.55); /* Further increased scale */
   transform-origin: center;
-  filter: saturate(1.08) contrast(1.04);
 }
 
 /* Responsive fixes */
