@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Row, Col, Card, Badge, ListGroup, Spinner } from 'react-bootstrap';
+import { Modal, Row, Col, Card, Badge, ListGroup, Spinner, Form } from 'react-bootstrap';
 import { User, Mail, Briefcase, Calendar, MapPin, Phone, ShieldCheck, DollarSign, X, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import ImageUpload from '../common/ImageUpload';
@@ -10,6 +10,8 @@ const ProfileModal = () => {
   const [profileData, setProfileData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -152,7 +154,39 @@ const ProfileModal = () => {
                   </Col>
                 </Row>
 
-                <h5 className="fw-bold mb-3">Recent Payslips</h5>
+                <div className="d-flex justify-content-between align-items-center mb-3">
+                  <h5 className="fw-bold mb-0">Recent Payslips</h5>
+                  <div className="d-flex gap-2">
+                    <div style={{ width: '130px' }}>
+                      <Form.Select 
+                        size="sm"
+                        className="rounded-pill border-0 shadow-sm px-3"
+                        style={{ backgroundColor: '#FFF5F5', color: '#D29191', fontWeight: '600', height: '32px' }}
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                      >
+                        <option value="">Month</option>
+                        {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m, idx) => (
+                          <option key={m} value={idx + 1}>{m}</option>
+                        ))}
+                      </Form.Select>
+                    </div>
+                    <div style={{ width: '100px' }}>
+                      <Form.Select 
+                        size="sm"
+                        className="rounded-pill border-0 shadow-sm px-3"
+                        style={{ backgroundColor: '#FFF5F5', color: '#D29191', fontWeight: '600', height: '32px' }}
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(e.target.value)}
+                      >
+                        {[2024, 2025, 2026].map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </Form.Select>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="table-responsive rounded-4 border overflow-hidden">
                   <table className="table table-hover align-middle mb-0">
                     <thead className="bg-light">
@@ -163,27 +197,41 @@ const ProfileModal = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {profileData.payroll_history.length > 0 ? (
-                        profileData.payroll_history.slice(0, 5).map((pay) => (
-                          <tr key={pay.id}>
-                            <td className="ps-4 py-3">
-                              <div className="small fw-medium">
-                                {new Date(pay.pay_period_start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - {new Date(pay.pay_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                              </div>
-                            </td>
-                            <td className="fw-bold">₱{pay.net_pay.toLocaleString()}</td>
-                            <td className="text-center">
-                              <Badge bg={pay.status === 'Approved' ? 'success-subtle' : 'warning-subtle'} className={`rounded-pill px-3 ${pay.status === 'Approved' ? 'text-success' : 'text-warning'}`}>
-                                {pay.status}
-                              </Badge>
-                            </td>
+                      {(() => {
+                        const filteredHistory = profileData.payroll_history.filter(pay => {
+                          const payDate = new Date(pay.pay_period_end);
+                          const monthMatch = !selectedMonth || (payDate.getMonth() + 1).toString() === selectedMonth;
+                          const yearMatch = !selectedYear || payDate.getFullYear().toString() === selectedYear;
+                          return monthMatch && yearMatch;
+                        });
+
+                        return filteredHistory.length > 0 ? (
+                          filteredHistory.map((pay) => (
+                            <tr key={pay.id}>
+                              <td className="ps-4 py-3">
+                                <div className="small fw-medium">
+                                  {new Date(pay.pay_period_start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - {new Date(pay.pay_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                </div>
+                              </td>
+                              <td className="fw-bold">₱{pay.net_pay.toLocaleString()}</td>
+                              <td className="text-center">
+                                <Badge 
+                                  bg={pay.status === 'Approved' ? 'success-subtle' : 
+                                      pay.status === 'Completed' ? 'success' : 'warning-subtle'} 
+                                  className={`rounded-pill px-3 ${pay.status === 'Approved' ? 'text-success' : 
+                                              pay.status === 'Completed' ? 'text-white' : 'text-warning'}`}
+                                >
+                                  {pay.status}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="3" className="text-center py-4 text-muted small">No history available for this period</td>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan="3" className="text-center py-4 text-muted small">No history available</td>
-                        </tr>
-                      )}
+                        );
+                      })()}
                     </tbody>
                   </table>
                 </div>
