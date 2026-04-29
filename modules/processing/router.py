@@ -287,6 +287,23 @@ async def resend_failed_payslip_emails(user: CurrentUser = Depends(get_current_u
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to resend payslip emails: {exc}")
 
+
+@router.post("/email-send-all")
+async def send_all_approved_emails(user: CurrentUser = Depends(get_current_user)):
+    """Manually triggers sending all approved/completed payslips that haven't been sent yet."""
+    try:
+        result = await PayslipEmailService.send_all_approved_emails(ignore_due_date=True)
+        await ActivityLogService.log_local_activity(
+            module="Payroll",
+            action="Triggered bulk payslip email send (Send All)",
+            target_info=f"Processed {result.get('processed', 0)} email(s)",
+            user=user,
+            metadata=result,
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to send all payslip emails: {exc}")
+
 @router.get("/schedule", response_model=List[PayrollSchedule])
 async def get_payroll_schedule(year: int = 2026):
     """Fetches the 24 cycles for the given year."""

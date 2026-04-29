@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import smtplib
 from datetime import datetime, timezone
@@ -310,16 +311,20 @@ class PayslipEmailService:
         reason: Optional[str] = None,
         sent_at: Optional[datetime] = None,
     ) -> None:
+        update_data = {
+            "email_delivery_status": status,
+            "email_last_attempt_at": cls._utc_now(),
+            "email_sent_at": sent_at,
+            "email_failure_reason": reason,
+        }
+        
+        # Automation: If email is successfully sent, mark the main status as Completed
+        if status == "sent":
+            update_data["status"] = "Completed"
+            
         await db["PayrollSnapshots"].update_one(
             {"_id": snapshot_id},
-            {
-                "$set": {
-                    "email_delivery_status": status,
-                    "email_last_attempt_at": cls._utc_now(),
-                    "email_sent_at": sent_at,
-                    "email_failure_reason": reason,
-                }
-            },
+            {"$set": update_data},
         )
 
     @classmethod
@@ -406,19 +411,53 @@ class PayslipEmailService:
         return {"processed": len(results), "results": results, "status": "completed"}
 
     @classmethod
-    async def resend_failed_or_skipped(cls) -> dict[str, Any]:
+    async def send_all_approved_emails(cls, ignore_due_date: bool = True) -> dict[str, Any]:
+        """
+        Sends emails for ALL snapshots that are Approved/Completed but haven't been sent yet.
+        """
         if not settings.PAYSLIP_EMAIL_ENABLED:
             return {"processed": 0, "results": [], "status": "disabled"}
 
-        now = datetime.now()
-        docs = await db["PayrollSnapshots"].find({
-            "pay_date": {"$lte": now},
+        now = cls._utc_now()
+        query = {
             "status": {"$regex": "^(Approved|Completed)$", "$options": "i"},
-            "email_delivery_status": {"$in": list(RETRYABLE_EMAIL_STATUSES - {"pending"})},
-        }).to_list(None)
+            "email_delivery_status": {"$ne": "sent"},
+        }
+        
+        if not ignore_due_date:
+            query["pay_date"] = {"$lte": now}
+
+        docs = await db["PayrollSnapshots"].find(query).to_list(None)
 
         results = []
         for doc in docs:
             result = await cls.send_snapshot_email(str(doc["_id"]), ignore_due_date=True, force_retry=True)
             results.append({"snapshot_id": str(doc["_id"]), **result})
+            # 🕒 ADDED: 1-second delay to prevent SMTP "Connection unexpectedly closed"
+            await asyncio.sleep(1) 
+        return {"processed": len(results), "results": results, "status": "completed"}
+
+    @classmethod
+    async def resend_failed_or_skipped(cls, ignore_due_date: bool = True) -> dict[str, Any]:
+        if not settings.PAYSLIP_EMAIL_ENABLED:
+            return {"processed": 0, "results": [], "status": "disabled"}
+
+        now = cls._utc_now()
+        query = {
+            "status": {"$regex": "^(Approved|Completed)$", "$options": "i"},
+            "email_delivery_status": {"$in": list(RETRYABLE_EMAIL_STATUSES - {"pending"})},
+        }
+        
+        # Only check pay_date if we aren't ignoring the due date (e.g., manual trigger)
+        if not ignore_due_date:
+            query["pay_date"] = {"$lte": now}
+
+        docs = await db["PayrollSnapshots"].find(query).to_list(None)
+
+        results = []
+        for doc in docs:
+            result = await cls.send_snapshot_email(str(doc["_id"]), ignore_due_date=True, force_retry=True)
+            results.append({"snapshot_id": str(doc["_id"]), **result})
+            # 🕒 ADDED: 1-second delay to prevent SMTP "Connection unexpectedly closed"
+            await asyncio.sleep(1)
         return {"processed": len(results), "results": results, "status": "completed"}

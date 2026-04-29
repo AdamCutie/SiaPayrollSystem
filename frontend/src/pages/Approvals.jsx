@@ -8,7 +8,7 @@ const Approvals = () => {
   const [activeTab, setActiveTab] = useState('overtime');
   const [period, setPeriod] = useState('today');
   const [filterStatus, setFilterStatus] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [departments, setDepartments] = useState([]);

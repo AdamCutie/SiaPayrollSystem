@@ -35,7 +35,7 @@ const Payroll = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [payslipSearch, setPayslipSearch] = useState('');
   const [historyPeriod, setHistoryPeriod] = useState('today'); // 'all', 'today', 'yesterday'
-  const [selectedPayslipMonth, setSelectedPayslipMonth] = useState('');
+  const [selectedPayslipMonth, setSelectedPayslipMonth] = useState((new Date().getMonth() + 1).toString());
   const [selectedPayslip, setSelectedPayslip] = useState(null);
   const [showPayslipModal, setShowPayslipModal] = useState(false);
   const [emailStatusFilter, setEmailStatusFilter] = useState('');
@@ -225,6 +225,19 @@ const Payroll = () => {
     }
   };
 
+  const handleSendAllEmails = async () => {
+    if (!window.confirm("Are you sure you want to send payslip emails to ALL approved employees for this period?")) return;
+    try {
+      setEmailActionLoading(true);
+      await api.post('/processing/email-send-all');
+      await fetchHistory();
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Failed to send all payslip emails.');
+    } finally {
+      setEmailActionLoading(false);
+    }
+  };
+
   const toggleSelect = (id) => {
     setSelectedIds(prev => 
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
@@ -281,6 +294,15 @@ const Payroll = () => {
         pay_period_end: record.pay_period_end
       }
     );
+  };
+
+  const handleUpdateStatus = async (snapshotId, newStatus) => {
+    try {
+      await api.patch(`/processing/history/${snapshotId}/status`, { status: newStatus });
+      await fetchHistory();
+    } catch (err) {
+      alert("Failed to update status.");
+    }
   };
 
   const filteredEmployees = employees.filter(emp => 
@@ -876,14 +898,16 @@ const Payroll = () => {
                   {new Date(record.processed_at).toLocaleString()}
                 </td>
                 <td className="text-end">
-                  <Button 
-                    variant="outline-primary" 
-                    size="sm" 
-                    className="rounded-pill px-3"
-                    onClick={() => handleViewPayslip(record)}
-                  >
-                    View Payslip
-                  </Button>
+                  <div className="d-flex gap-2 justify-content-end">
+                    <Button 
+                      variant="outline-primary" 
+                      size="sm" 
+                      className="rounded-pill px-3"
+                      onClick={() => handleViewPayslip(record)}
+                    >
+                      View
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -1365,15 +1389,17 @@ const Payroll = () => {
       <div className="mb-4">
         <div className="d-flex justify-content-between align-items-center mb-3">
           <h5 className="fw-bold mb-0" style={{ color: '#5A4343' }}>Payslip Email Tracking</h5>
-          <Button
-            variant="outline-primary"
-            className="rounded-pill px-4"
-            disabled={emailActionLoading}
-            onClick={handleResendFailedEmails}
-          >
-            {emailActionLoading ? <Spinner animation="border" size="sm" className="me-2" /> : null}
-            Retry Failed / Skipped
-          </Button>
+          <div className="d-flex gap-2">
+            <Button
+              variant="outline-primary"
+              className="rounded-pill px-4 shadow-sm fw-bold d-flex align-items-center gap-2"
+              disabled={emailActionLoading}
+              onClick={handleSendAllEmails}
+            >
+              {emailActionLoading ? <Spinner animation="border" size="sm" className="me-2" /> : <Zap size={16} />}
+              Retry / Send All Approved
+            </Button>
+          </div>
         </div>
 
         <div className="d-flex justify-content-between align-items-center gap-3">
@@ -1564,7 +1590,7 @@ const Payroll = () => {
         <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'schedule' ? '#D29191' : '#FFFFFF', color: view === 'schedule' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('schedule')}><Calendar size={18} />Schedule</Button>
         <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'configuration' ? '#D29191' : '#FFFFFF', color: view === 'configuration' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('configuration')}><Settings size={18} />Configuration</Button>
         <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'payslips' ? '#D29191' : '#FFFFFF', color: view === 'payslips' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('payslips')}><FileText size={18} />Payslips</Button>
-        <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'emails' ? '#D29191' : '#FFFFFF', color: view === 'emails' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('emails')}><FileText size={18} />Email Tracking</Button>
+        <Button className="rounded-pill px-5 border-0 shadow-sm d-flex align-items-center gap-2" style={{ backgroundColor: view === 'emails' ? '#D29191' : '#FFFFFF', color: view === 'emails' ? 'white' : '#A08E8E', height: '50px', fontWeight: '600' }} onClick={() => setView('emails')}><FileText size={18} />Email</Button>
       </div>
       {view === 'generation' && <WizardProgress />}
       <Card className="border-0 shadow-sm rounded-4 p-4">
